@@ -9,14 +9,17 @@ import com.hmdp.mapper.ShopTypeMapper;
 import com.hmdp.service.IShopTypeService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.DefaultTypedTuple;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 
 import javax.servlet.http.HttpServletResponse;
+import java.time.Duration;
 import java.util.*;
 
 import static com.hmdp.utils.RedisConstants.CACHE_SHOP_TYPE_KEY;
+import static com.hmdp.utils.RedisConstants.CACHE_SHOP_TYPE_TTL;
 
 /**
  * <p>
@@ -71,30 +74,19 @@ public class ShopTypeServiceImpl extends ServiceImpl<ShopTypeMapper, ShopType> i
                 // b. 以sort字段作为score（保持排序一致）
                 Double score = (double)shopType.getSort();
                 // c. 封装为TypedTuple（包含member和score）
-                ZSetOperations.TypedTuple<String> tuple = new ZSetOperations.TypedTuple<String>() {
-
-                    @Override
-                    public String getValue() {
-                        return shopTypeJson;
-                    }
-
-                    @Override
-                    public Double getScore() {
-                        return score;
-                    }
-
-                    @Override
-                    public int compareTo(ZSetOperations.TypedTuple<String> o) {
-                        return this.getScore().compareTo(o.getScore());
-                    }
-                };
+                ZSetOperations.TypedTuple<String> tuple = new DefaultTypedTuple<>(shopTypeJson, score);
                 zSetTuples.add(tuple);
             } catch (Exception e) {
                 // 处理序列化异常（如日志记录）
                 throw new RuntimeException(e);
             }
         }
-        stringRedisTemplate.opsForZSet().add(key, zSetTuples);
+        try {
+            stringRedisTemplate.opsForZSet().add(key, zSetTuples);
+            stringRedisTemplate.expire(key, Duration.ofMinutes(CACHE_SHOP_TYPE_TTL));
+        } catch (Exception e) {
+            log.error("写入店铺类型缓存失败", e); // 记录日志即可，不影响接口返回
+        }
         // 6.返回
         return typeList;
     }

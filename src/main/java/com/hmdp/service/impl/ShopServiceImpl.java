@@ -15,8 +15,7 @@ import javax.servlet.http.HttpServletResponse;
 
 import java.time.Duration;
 
-import static com.hmdp.utils.RedisConstants.CACHE_SHOP_KEY;
-import static com.hmdp.utils.RedisConstants.CACHE_SHOP_TTL;
+import static com.hmdp.utils.RedisConstants.*;
 
 /**
  * <p>
@@ -49,11 +48,18 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
             return shop;
         }
 
+        // redis内容不为空，说明数据库中不存在该数据
+        if (shopJson != null) {
+            throw new RuntimeException("店铺不存在");
+        }
+
         // 3.未命中，查询数据库
         Shop shop = getById(id);
-        // 4.数据库中不存在，报错，返回404
+        // 4.数据库中不存在，写入空值，报错
         if (shop == null) {
-            httpServletResponse.setStatus(HttpServletResponse.SC_NOT_FOUND);
+            // redis中缓存空值
+            stringRedisTemplate.opsForValue().set(CACHE_SHOP_KEY + id, "", Duration.ofMinutes(CACHE_NULL_TTL));
+            // 报错
             throw new RuntimeException("店铺不存在");
         }
         // 5.存在，写入redis中

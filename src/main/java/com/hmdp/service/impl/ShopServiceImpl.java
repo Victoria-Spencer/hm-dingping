@@ -1,7 +1,10 @@
 package com.hmdp.service.impl;
 
 import cn.hutool.core.lang.TypeReference;
+import cn.hutool.core.net.NetUtil;
 import cn.hutool.core.util.BooleanUtil;
+import cn.hutool.core.util.IdUtil;
+import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
@@ -12,6 +15,7 @@ import com.hmdp.service.IShopService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.CacheClient;
 import com.hmdp.utils.RedisData;
+import com.hmdp.utils.SnowflakeIdGenerator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -99,6 +103,19 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
                 CACHE_SHOP_TTL,
                 TimeUnit.SECONDS
         );*/
+        // 5位（0-31）
+
+        /*// 自定义机器ID（0-31）、数据中心ID（0-31）
+        long workerId = NetUtil.ipv4ToLong(NetUtil.getLocalhostStr()) % 32; // 基于IP生成唯一机器ID
+        long datacenterId = RandomUtil.randomLong(0, 31); // 数据中心ID（也可配置化）
+        long snowflakeId = IdUtil.createSnowflake(workerId, datacenterId).nextId();
+        System.out.println("雪花ID：" + snowflakeId);*/
+
+        /*String orderSn = SnowflakeIdGenerator.generateOrderSn();
+        String preOrderSn = SnowflakeIdGenerator.generatePreOrderSn();
+        System.out.println("orderSn：" + orderSn);
+        System.out.println("preOrderSn：" + preOrderSn);*/
+
         // 缓存击穿（锁机制）
         return cacheClient.queryWithMutex(
                 CACHE_SHOP_KEY,

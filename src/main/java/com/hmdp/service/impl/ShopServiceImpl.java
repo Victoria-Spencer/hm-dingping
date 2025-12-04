@@ -123,7 +123,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
                 Shop.class,
                 this::getById,
                 CACHE_SHOP_TTL,
-                TimeUnit.SECONDS
+                TimeUnit.MINUTES
         );
     }
 

@@ -1,10 +1,17 @@
 package com.hmdp.service.impl;
 
+import com.hmdp.entity.SeckillVoucher;
 import com.hmdp.entity.VoucherOrder;
 import com.hmdp.mapper.VoucherOrderMapper;
 import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.utils.RedisIdWorker;
+import com.hmdp.utils.UserHolder;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
 
 /**
  * <p>
@@ -17,4 +24,49 @@ import org.springframework.stereotype.Service;
 @Service
 public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder> implements IVoucherOrderService {
 
+    @Autowired
+    private SeckillVoucherServiceImpl seckillVoucherServiceImpl;
+    @Autowired
+    private RedisIdWorker redisIdWorker;
+
+    /**
+     * 下单秒杀优惠券
+     * @param voucherId
+     * @return
+     */
+    @Transactional
+    public Long seckillVoucher(Long voucherId) {
+        // 1.查询秒杀优惠券
+        SeckillVoucher seckillVoucher = seckillVoucherServiceImpl.getById(voucherId);
+        // 2.判断是否不在下单时间内
+        if (seckillVoucher.getBeginTime().isAfter(LocalDateTime.now())
+                ||  seckillVoucher.getEndTime().isBefore(LocalDateTime.now())) {
+            throw new RuntimeException("当前不在抢购优惠券的时间内！");
+        }
+
+        // 3.判断库存是否充足
+        if (seckillVoucher.getStock() < 1) {
+            throw new RuntimeException("库存不足！");
+        }
+        // 4.扣减库存
+        seckillVoucherServiceImpl.update()
+                .setSql("stock = stock - 1")
+                .eq("voucher_id", voucherId).update();
+
+        // 5.构建下单条件
+        VoucherOrder voucherOrder = new VoucherOrder();
+        // 5.1.订单ID
+        long orderId = redisIdWorker.nextId("order");
+        voucherOrder.setId(orderId);
+        // 5.2.用户ID
+        Long userId = UserHolder.getUser().getId();
+        voucherOrder.setUserId(userId);
+        // 5.3.代金券ID
+        voucherOrder.setVoucherId(voucherId);
+        // 创建订单
+        save(voucherOrder);
+
+        // 6.返回订单ID
+        return orderId;
+    }
 }

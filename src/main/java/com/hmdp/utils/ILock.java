@@ -13,5 +13,5 @@ public interface ILock {
      * 释放锁
      * @return
      */
-    public void unLock();
+    public void unlock();
 }

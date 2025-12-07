@@ -1,6 +1,5 @@
 package com.hmdp.entity;
 
-// 分布式锁实体类
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -15,4 +14,5 @@ public class DistributedLock {
     private String lockKey;      // 锁唯一标识
     private String holder;       // 锁持有者（UUID）
     private LocalDateTime expireTime; // 锁过期时间
+    private Integer reentrantCount; // 新增：重入次数
 }

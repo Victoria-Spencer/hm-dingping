@@ -65,12 +65,12 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             return thisProxy.createVoucherOrder(voucherId);
         }*/
         // 用数据库分布式锁执行秒杀（锁key：业务+资源ID）
-        /*return dbDistributedLock.executeWithLock(
+        return dbDistributedLock.executeWithLock(
                 "seckill:voucher:" + voucherId + "user:id" + userId,
                 () -> thisProxy.createVoucherOrder(voucherId) // 秒杀业务逻辑
-        );*/
+        );
         // 用redis分布式锁执行秒杀
-        SimpleRedisLock lock = new SimpleRedisLock(stringRedisTemplate, "order:" + userId);
+        /*SimpleRedisLock lock = new SimpleRedisLock(stringRedisTemplate, "order:" + userId);
 
         boolean isLock = lock.tryLock(1200L);
 
@@ -81,8 +81,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         try {
             return thisProxy.createVoucherOrder(voucherId);
         } finally {
-            lock.unLock();
-        }
+            lock.unlock();
+        }*/
     }
 
     @Transactional

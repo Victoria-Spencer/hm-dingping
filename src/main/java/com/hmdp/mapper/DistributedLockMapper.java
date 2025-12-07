@@ -1,8 +1,6 @@
 package com.hmdp.mapper;
 
-// 锁Mapper接口
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.hmdp.entity.DistributedLock;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -22,6 +20,32 @@ public interface DistributedLockMapper extends BaseMapper<DistributedLock> {
      */
     @Update("UPDATE distributed_lock SET expire_time = #{newExpire} WHERE lock_key = #{lockKey} AND holder = #{holder}")
     int extendLockExpire(
+            @Param("lockKey") String lockKey,
+            @Param("holder") String holder,
+            @Param("newExpire") LocalDateTime newExpire
+    );
+
+    /**
+     * 重入时增加计数并续期（新增）
+     */
+    @Update("UPDATE distributed_lock SET " +
+            "reentrant_count = reentrant_count + 1, " +
+            "expire_time = #{newExpire} " +
+            "WHERE lock_key = #{lockKey} AND holder = #{holder}")
+    int incrementReentrantCount(
+            @Param("lockKey") String lockKey,
+            @Param("holder") String holder,
+            @Param("newExpire") LocalDateTime newExpire
+    );
+
+    /**
+     * 释放时减少计数并续期（新增）
+     */
+    @Update("UPDATE distributed_lock SET " +
+            "reentrant_count = reentrant_count - 1, " +
+            "expire_time = #{newExpire} " +
+            "WHERE lock_key = #{lockKey} AND holder = #{holder}")
+    int decrementReentrantCount(
             @Param("lockKey") String lockKey,
             @Param("holder") String holder,
             @Param("newExpire") LocalDateTime newExpire

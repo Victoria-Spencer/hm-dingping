@@ -16,47 +16,51 @@ import java.time.LocalDateTime;
 public class DistributedLockAcquirer {
     private final DistributedLockMapper lockMapper;
 
-    // 构造器注入（替代字段注入）
     public DistributedLockAcquirer(DistributedLockMapper lockMapper) {
         this.lockMapper = lockMapper;
     }
 
-    /**
-     * 抢占锁（独立类+独立事务，保证AOP生效）
-     */
     @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
     public void acquireLock(String lockKey, String holder, LocalDateTime expireTime) {
-        // 加行级排他锁查询，保证同一lockKey互斥
         DistributedLock lock = lockMapper.getLockWithExLock(lockKey);
 
         if (lock == null) {
-            // 锁记录不存在 → 创建新锁
+            // 锁不存在：创建新锁，重入次数初始化为1
             lock = new DistributedLock();
             lock.setLockKey(lockKey);
             lock.setHolder(holder);
             lock.setExpireTime(expireTime);
+            lock.setReentrantCount(1); // 首次获取，计数1
             lockMapper.insert(lock);
-            log.debug("创建新锁成功，lockKey={}, holder={}", lockKey, holder);
+            log.debug("创建新锁成功，lockKey={}, holder={}, 重入次数=1", lockKey, holder);
         } else {
-            // 锁记录存在 → 检查是否过期
             if (lock.getExpireTime().isBefore(LocalDateTime.now())) {
-                // 锁已过期 → 强制抢占
+                // 锁已过期：强制抢占，重入次数重置为1
                 int updateCount = lockMapper.update(
                         new DistributedLock() {{
                             setHolder(holder);
                             setExpireTime(expireTime);
+                            setReentrantCount(1); // 抢占后计数1
                         }},
                         new QueryWrapper<DistributedLock>()
                                 .eq("lock_key", lockKey)
                                 .le("expire_time", LocalDateTime.now())
                 );
-
                 if (updateCount == 0) {
                     throw new LockAcquireFailedException("锁被其他线程抢占");
                 }
-                log.debug("抢占过期锁成功，lockKey={}, holder={}", lockKey, holder);
+                log.debug("抢占过期锁成功，lockKey={}, holder={}, 重入次数=1", lockKey, holder);
+            } else if (lock.getHolder().equals(holder)) {
+                // 锁未过期且是当前持有者：重入，计数+1
+                int updateCount = lockMapper.incrementReentrantCount(lockKey, holder, expireTime);
+                if (updateCount == 0) {
+                    throw new LockAcquireFailedException("重入失败，锁状态已变更");
+                }
+                log.debug("锁重入成功，lockKey={}, holder={}, 重入次数={}",
+                        lockKey, holder, lock.getReentrantCount() + 1);
             } else {
-                throw new LockAcquireFailedException("锁已被持有");
+                // 锁被其他持有者持有：获取失败
+                throw new LockAcquireFailedException("锁已被其他线程持有（holder=" + lock.getHolder() + "）");
             }
         }
     }

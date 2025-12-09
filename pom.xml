@@ -66,6 +66,17 @@
             <artifactId>aspectjweaver</artifactId>
             <version>1.9.24</version>
         </dependency>
+        <dependency>
+            <groupId>org.redisson</groupId>
+            <artifactId>redisson</artifactId>
+            <version>3.23.3</version> <!-- 版本需与Redis兼容 -->
+        </dependency>
+
+        <!--<dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+            <version>1.11.0</version> &lt;!&ndash; 版本号可根据项目需求调整 &ndash;&gt;
+        </dependency>-->
     </dependencies>
 
     <build>

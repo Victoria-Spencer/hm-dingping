@@ -6,6 +6,7 @@ import com.hmdp.lock.exception.LockAcquireFailedException;
 import com.hmdp.lock.mapper.DistributedLockMapper;
 import com.hmdp.lock.watchdog.RenewalTask;
 import com.hmdp.lock.watchdog.WatchdogManager;
+import jdk.nashorn.internal.objects.annotations.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
@@ -54,6 +55,7 @@ public class DatabaseDLock implements DLock {
     /**
      * 手动设置self引用
      */
+    @Setter
     public void setSelf(DatabaseDLock self) {
         this.self = self;
     }
@@ -275,6 +277,8 @@ public class DatabaseDLock implements DLock {
      */
     private void startRenewalTask(long intervalMillis) {
         // 创建续期任务
+        // 关键：保存创建锁时的原始holder（而非续期线程的holder）
+        String originalHolder = getHolder();
         RenewalTask renewalTask = new RenewalTask() {
             @Override
             public String getLockKey() {
@@ -284,8 +288,10 @@ public class DatabaseDLock implements DLock {
             @Override
             public void run() {
                 try {
-                    LocalDateTime newExpire = LocalDateTime.now().plus(leaseTime, ChronoUnit.MILLIS);
-                    int updateCount = lockMapper.extendLockExpire(lockKey, getHolder(), newExpire);
+                    // 修复：看门狗模式下使用默认租期，否则使用用户指定的租期
+                    long actualLeaseTime = useWatchDog ? DEFAULT_LEASE_TIME : leaseTime;
+                    LocalDateTime newExpire = LocalDateTime.now().plus(actualLeaseTime, ChronoUnit.MILLIS);
+                    int updateCount = lockMapper.extendLockExpire(lockKey, originalHolder, newExpire);
 
                     if (updateCount == 0) {
                         log.warn("锁续期失败，可能已被释放: {}", lockKey);

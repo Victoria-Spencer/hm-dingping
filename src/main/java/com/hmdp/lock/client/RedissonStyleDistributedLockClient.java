@@ -5,8 +5,10 @@ import com.hmdp.lock.mapper.DistributedLockMapper;
 import com.hmdp.lock.core.DLock;
 import com.hmdp.lock.core.DatabaseDLock;
 import com.hmdp.lock.watchdog.WatchdogManager;
+import org.springframework.stereotype.Component;
 
 // 客户端实现类
+@Component
 public class RedissonStyleDistributedLockClient implements DistributedLockClient {
 
     private final DistributedLockMapper lockMapper;

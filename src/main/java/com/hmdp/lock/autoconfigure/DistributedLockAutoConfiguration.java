@@ -19,7 +19,7 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 @ConditionalOnClass(DistributedLockClient.class)
 @EnableConfigurationProperties(DistributedLockProperties.class)
-@MapperScan("${distributed.lock.mapper-location}")
+@MapperScan("${distributed.lock.mapper-location:com.hmdp.lock.mapper}")
 public class DistributedLockAutoConfiguration {
 
     // 注册分布式锁客户端（修复参数问题：添加WatchdogManager参数）

@@ -3,6 +3,7 @@ package com.hmdp.lock.watchdog;
 import com.hmdp.lock.exception.LockRenewalFailedException;
 import com.hmdp.lock.autoconfigure.DistributedLockProperties;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
 
 import java.util.Map;
 import java.util.concurrent.*;

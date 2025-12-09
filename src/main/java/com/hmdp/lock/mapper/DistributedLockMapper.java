@@ -1,7 +1,7 @@
-package com.hmdp.mapper;
+package com.hmdp.lock.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.hmdp.entity.DistributedLock;
+import com.hmdp.lock.entity.DistributedLock;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;

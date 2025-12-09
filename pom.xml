@@ -72,11 +72,11 @@
             <version>3.23.3</version> <!-- 版本需与Redis兼容 -->
         </dependency>
 
-        <!--<dependency>
+        <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-core</artifactId>
-            <version>1.11.0</version> &lt;!&ndash; 版本号可根据项目需求调整 &ndash;&gt;
-        </dependency>-->
+            <version>1.11.0</version> <!-- 版本号可根据项目需求调整 -->
+        </dependency>
     </dependencies>
 
     <build>

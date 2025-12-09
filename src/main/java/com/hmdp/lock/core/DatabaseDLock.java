@@ -1,11 +1,11 @@
 package com.hmdp.lock.core;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.hmdp.entity.DistributedLock;
-import com.hmdp.exception.LockAcquireFailedException;
+import com.hmdp.lock.entity.DistributedLock;
+import com.hmdp.lock.exception.LockAcquireFailedException;
+import com.hmdp.lock.mapper.DistributedLockMapper;
 import com.hmdp.lock.watchdog.RenewalTask;
 import com.hmdp.lock.watchdog.WatchdogManager;
-import com.hmdp.mapper.DistributedLockMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;

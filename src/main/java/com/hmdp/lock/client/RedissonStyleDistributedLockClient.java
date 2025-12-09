@@ -1,9 +1,9 @@
 package com.hmdp.lock.client;
 
 import cn.hutool.core.lang.UUID;
+import com.hmdp.lock.mapper.DistributedLockMapper;
 import com.hmdp.lock.core.DLock;
 import com.hmdp.lock.core.DatabaseDLock;
-import com.hmdp.mapper.DistributedLockMapper;
 
 // 客户端实现类
 public class RedissonStyleDistributedLockClient implements DistributedLockClient {

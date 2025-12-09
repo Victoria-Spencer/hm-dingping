@@ -1,6 +1,6 @@
 package com.hmdp.lock.watchdog;
 
-import com.hmdp.exception.LockRenewalFailedException;
+import com.hmdp.lock.exception.LockRenewalFailedException;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Map;

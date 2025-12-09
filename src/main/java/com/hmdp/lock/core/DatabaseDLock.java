@@ -27,8 +27,8 @@ public class DatabaseDLock implements DLock {
     private final DistributedLockMapper lockMapper;
     private final String instanceUUID;
     private final ThreadLocal<String> holderThreadLocal = new ThreadLocal<>();
-    // 看门狗管理器
-    private final WatchdogManager watchdogManager = WatchdogManager.getInstance();
+    // 看门狗管理器（通过构造函数注入）
+    private final WatchdogManager watchdogManager;
     // 默认过期时间30秒（看门狗机制）
     private static final long DEFAULT_LEASE_TIME = 30 * 1000;
     // 重试间隔（毫秒）
@@ -43,10 +43,12 @@ public class DatabaseDLock implements DLock {
     @Lazy
     private DatabaseDLock self;
 
-    public DatabaseDLock(String lockKey, DistributedLockMapper lockMapper, String instanceUUID) {
+    // 构造函数添加WatchdogManager参数
+    public DatabaseDLock(String lockKey, DistributedLockMapper lockMapper, String instanceUUID, WatchdogManager watchdogManager) {
         this.lockKey = lockKey;
         this.lockMapper = lockMapper;
         this.instanceUUID = instanceUUID;
+        this.watchdogManager = watchdogManager;
     }
 
     /**

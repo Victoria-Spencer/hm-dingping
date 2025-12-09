@@ -7,6 +7,8 @@ import com.hmdp.lock.task.DistributedLockCleanTask;
 import com.hmdp.lock.watchdog.WatchdogManager;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.mybatis.spring.annotation.MapperScan;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -15,25 +17,27 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
-@ConditionalOnClass(DistributedLockClient.class) // 存在客户端类时生效
-@EnableConfigurationProperties(DistributedLockProperties.class) // 启用配置绑定
-@MapperScan("com.hmdp.lock.mapper") // 扫描Starter中的Mapper接口
+@ConditionalOnClass(DistributedLockClient.class)
+@EnableConfigurationProperties(DistributedLockProperties.class)
+@MapperScan("${distributed.lock.mapper-location}")
 public class DistributedLockAutoConfiguration {
 
-    // 注册分布式锁客户端
-    @Bean
-    @ConditionalOnMissingBean // 允许用户自定义客户端
-    public DistributedLockClient distributedLockClient(
-            DistributedLockMapper lockMapper,
-            DistributedLockProperties properties) {
-        return new RedissonStyleDistributedLockClient(lockMapper);
-    }
-
-    // 注册看门狗管理器（单例）
+    // 注册分布式锁客户端（修复参数问题：添加WatchdogManager参数）
     @Bean
     @ConditionalOnMissingBean
-    public WatchdogManager watchdogManager() {
-        return WatchdogManager.getInstance();
+    @ConditionalOnBean({DistributedLockMapper.class, WatchdogManager.class}) // 依赖mapper和看门狗管理器
+    public DistributedLockClient distributedLockClient(
+            DistributedLockMapper lockMapper,
+            WatchdogManager watchdogManager) {
+        return new RedissonStyleDistributedLockClient(lockMapper, watchdogManager);
+    }
+
+    // 注册看门狗管理器（从配置中获取参数）
+    @Bean
+    @ConditionalOnMissingBean
+    public WatchdogManager watchdogManager(DistributedLockProperties properties) {
+        // 传入看门狗配置
+        return new WatchdogManager(properties.getWatchdog());
     }
 
     // 注册过期锁清理任务
@@ -42,8 +46,7 @@ public class DistributedLockAutoConfiguration {
     @ConditionalOnProperty(prefix = "distributed.lock.clean", name = "enabled", havingValue = "true", matchIfMissing = true)
     public DistributedLockCleanTask lockCleanTask(
             DistributedLockMapper lockMapper,
-            DistributedLockProperties properties,
-            MeterRegistry meterRegistry) {
+            @Autowired(required = false) MeterRegistry meterRegistry) { // 允许监控组件为null
         return new DistributedLockCleanTask(lockMapper, meterRegistry);
     }
 }

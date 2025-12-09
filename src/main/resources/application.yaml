@@ -24,3 +24,32 @@ mybatis-plus:
 logging:
   level:
     com.hmdp: debug
+
+
+# 分布式锁核心配置
+distributed:
+  lock:
+    # 默认锁租期（毫秒），最小1000ms
+    default-lease-time: 30000
+    # 看门狗续期间隔（毫秒），最小500ms
+    renewal-interval: 10000
+    # Mapper接口扫描路径（默认：com.hmdp.lock.mapper）
+    mapper-location: com.hmdp.lock.mapper
+
+    # 看门狗线程池配置
+    watchdog:
+      # 核心线程数，至少1
+      core-pool-size: 2
+      # 线程名前缀
+      thread-name-prefix: lock-watchdog-
+
+    # 过期锁清理任务配置
+    clean:
+      # 是否启用清理任务（默认true）
+      enabled: true
+      # 清理多少天前的过期锁，至少1天
+      expire-days: 7
+      # 每次批量清理的数量，至少100
+      batch-size: 1000
+      # 清理任务执行时间（Cron表达式）
+      cron: "0 0 2 * * ?"

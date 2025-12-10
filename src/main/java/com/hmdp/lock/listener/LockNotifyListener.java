@@ -5,6 +5,7 @@ import com.hmdp.lock.mapper.LockNotifyMapper;
 import com.hmdp.lock.mapper.LockSequenceMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -78,6 +79,32 @@ public class LockNotifyListener {
         if (threadLatches != null) {
             threadLatches.remove(threadId);
             // 若二级Map为空，清理一级Map和订阅状态
+            if (threadLatches.isEmpty()) {
+                latchMap.remove(lockKey);
+                subscribedMap.remove(lockKey);
+            }
+        }
+    }
+
+    /**
+     * 定期清理过期线程（如每30秒）
+     */
+    @Scheduled(fixedRate = 30000)
+    public void cleanExpiredThreads() {
+        for (String lockKey : latchMap.keySet()) {
+            ConcurrentMap<String, CountDownLatch> threadLatches = latchMap.get(lockKey);
+            if (threadLatches == null) continue;
+
+            // 遍历线程，移除已中断/失效的线程（可结合线程状态判断）
+            threadLatches.keySet().removeIf(threadId -> {
+                // 此处可根据实际场景判断线程是否过期（例如：通过线程ID查询线程状态）
+                boolean isExpired = false;
+                // 示例：假设threadId包含线程ID，可尝试判断线程是否存活
+                // ...
+                return isExpired;
+            });
+
+            // 清理后若为空，停止监听
             if (threadLatches.isEmpty()) {
                 latchMap.remove(lockKey);
                 subscribedMap.remove(lockKey);

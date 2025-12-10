@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.hmdp.lock.mapper.LockNotifyMapper">
+    <select id="selectMaxSequenceByLockKey" resultType="java.lang.Long">
+        SELECT MAX(sequence) FROM lock_notify WHERE lock_key = #{lockKey}
+    </select>
+
+    <select id="selectByLockKeyAndSequence" resultType="com.hmdp.lock.entity.LockNotify">
+        SELECT id, lock_key, sequence, notify_time
+        FROM lock_notify
+        WHERE lock_key = #{lockKey} AND sequence >= #{sequence}
+        ORDER BY sequence ASC
+            LIMIT 1
+    </select>
+
+    <delete id="deleteByLockKey">
+        DELETE FROM lock_notify WHERE lock_key = #{lockKey}
+    </delete>
+</mapper>

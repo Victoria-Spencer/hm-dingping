@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.hmdp.lock.mapper.LockSequenceMapper">
+
+    <!-- 原子递增并获取序列号 -->
+    <update id="incrementAndGet">
+        UPDATE lock_sequence
+        SET current_sequence = current_sequence + 1
+        WHERE lock_key = #{lockKey}
+    </update>
+
+    <!-- 初始化序列号记录（不存在则创建） -->
+    <insert id="initSequenceIfAbsent">
+        INSERT IGNORE INTO lock_sequence (lock_key, current_sequence)
+        VALUES (#{lockKey}, 0)
+    </insert>
+
+    <!-- 查询当前序列号 -->
+    <select id="selectCurrentSequence" resultType="java.lang.Long">
+        SELECT current_sequence
+        FROM lock_sequence
+        WHERE lock_key = #{lockKey}
+    </select>
+</mapper>

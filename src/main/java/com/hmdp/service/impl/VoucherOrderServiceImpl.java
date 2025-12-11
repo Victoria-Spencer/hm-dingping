@@ -78,7 +78,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         DLock lock = distributedLockClient.getLock("lock:order" + userId);
 //
 //        boolean isLock = lock.tryLock();
-        boolean isLock = lock.tryLock(1L, -1, TimeUnit.SECONDS);
+        boolean isLock = lock.tryLock(50L, -1, TimeUnit.SECONDS);
 //        boolean isLock = lock.tryLock();
 
         if (!isLock) {

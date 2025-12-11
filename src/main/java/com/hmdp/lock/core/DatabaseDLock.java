@@ -12,6 +12,7 @@ import com.hmdp.lock.mapper.LockSequenceMapper;
 import com.hmdp.lock.mapper.LockWaitQueueMapper;
 import com.hmdp.lock.watchdog.RenewalTask;
 import com.hmdp.lock.watchdog.WatchdogManager;
+import jdk.nashorn.internal.objects.annotations.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
@@ -39,6 +40,8 @@ public class DatabaseDLock implements DLock {
     private final WatchdogManager watchdogManager;
     private static final long DEFAULT_LEASE_TIME = 30 * 1000;
     private static final long NOTIFY_CHECK_INTERVAL_MS = 50;
+    // 续期间隔（为租期的1/3，确保在过期前完成续期）
+    private static final long RENEWAL_INTERVAL_RATIO = 3;
 
     private long leaseTime;
     private boolean useWatchDog;
@@ -64,6 +67,7 @@ public class DatabaseDLock implements DLock {
         this.watchdogManager = watchdogManager;
     }
 
+    @Setter
     public void setSelf(DatabaseDLock self) {
         this.self = self;
     }
@@ -253,12 +257,10 @@ public class DatabaseDLock implements DLock {
                 return;
             }
 
-            // 检查self是否为null，避免空指针
             if (self == null) {
                 throw new IllegalMonitorStateException("分布式锁self引用未初始化: " + lockKey);
             }
 
-            // 如果重入次数大于1，只减少计数
             if (currentCount > 1) {
                 boolean released = self.tryDecrementReentrantCount();
                 if (released) {
@@ -268,12 +270,10 @@ public class DatabaseDLock implements DLock {
                 return;
             }
 
-            // 最后一次释放，删除锁记录
             boolean released = self.tryRelease();
             if (released) {
                 setReentrantCount(0);
                 stopRenewal();
-                // 通知等待队列
                 notifyWaiters();
                 log.debug("锁释放成功: {}", lockKey);
             } else {
@@ -281,7 +281,6 @@ public class DatabaseDLock implements DLock {
             }
         } catch (Exception e) {
             log.error("释放锁异常: {}", lockKey, e);
-            // 发生异常时强制清理ThreadLocal，避免内存泄漏
             forceCleanThreadLocal();
             throw new RuntimeException("释放锁失败: " + lockKey, e);
         }
@@ -298,7 +297,6 @@ public class DatabaseDLock implements DLock {
     @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
     public boolean tryRelease() {
         String holder = getHolder();
-        // 删除锁时校验持有者和锁状态，防止误删
         int deleteCount = lockMapper.delete(new QueryWrapper<DistributedLock>()
                 .eq("lock_key", lockKey)
                 .eq("holder", holder));
@@ -307,12 +305,12 @@ public class DatabaseDLock implements DLock {
 
     private void notifyWaiters() {
         try {
-            // 生成新的序列号并通知等待者
             long newSeq = sequenceMapper.incrementAndGet(lockKey);
             LockNotify notify = new LockNotify();
             notify.setLockKey(lockKey);
             notify.setSequence(newSeq);
-            notifyMapper.insert(notify);
+            notify.setNotifyTime(LocalDateTime.now());
+            notifyMapper.insertNotify(notify);
             log.debug("锁[{}]通知等待队列，新序列号:{}", lockKey, newSeq);
         } catch (Exception e) {
             log.error("通知等待队列异常: {}", lockKey, e);
@@ -329,19 +327,47 @@ public class DatabaseDLock implements DLock {
 
     private void startRenewalIfNeeded(long leaseMillis) {
         if (useWatchDog) {
-            watchdogManager.scheduleRenewal(lockKey, getHolder(), leaseMillis);
+            // 创建续期任务
+            RenewalTask renewalTask = new RenewalTask() {
+                @Override
+                public void run() {
+                    try {
+                        LocalDateTime newExpire = LocalDateTime.now().plus(leaseMillis, ChronoUnit.MILLIS);
+                        int updateCount = lockMapper.extendLockExpire(lockKey, getHolder(), newExpire);
+                        if (updateCount <= 0) {
+                            throw new LockRenewalFailedException("锁续期失败: " + lockKey);
+                        }
+                        log.debug("锁[{}]续期成功，新过期时间: {}", lockKey, newExpire);
+                    } catch (Exception e) {
+                        log.error("锁[{}]续期异常", lockKey, e);
+                        throw new LockRenewalFailedException("锁续期异常: " + lockKey, e);
+                    }
+                }
+
+                @Override
+                public String getLockKey() {
+                    return lockKey;
+                }
+            };
+
+            // 计算续期间隔（租期的1/3）
+            long renewalInterval = leaseMillis / RENEWAL_INTERVAL_RATIO;
+            watchdogManager.submitRenewalTask(
+                    lockKey,
+                    renewalTask,
+                    0, // 立即开始
+                    renewalInterval,
+                    TimeUnit.MILLISECONDS
+            );
         }
     }
 
     private void stopRenewal() {
         if (useWatchDog) {
-            watchdogManager.cancelRenewal(lockKey, getHolder());
+            watchdogManager.cancelRenewalTask(lockKey);
         }
     }
 
-    /**
-     * 强制清理ThreadLocal，用于异常情况
-     */
     public void forceCleanThreadLocal() {
         holderThreadLocal.remove();
         reentrantCountThreadLocal.remove();

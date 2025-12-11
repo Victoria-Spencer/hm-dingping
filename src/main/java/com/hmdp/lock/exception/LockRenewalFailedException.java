@@ -7,4 +7,8 @@ public class LockRenewalFailedException extends RuntimeException {
     public LockRenewalFailedException(String message) {
         super(message);
     }
+
+    public LockRenewalFailedException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }

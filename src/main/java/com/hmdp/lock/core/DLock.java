@@ -17,5 +17,8 @@ public interface DLock {
 
     void unlock();
 
+    void lockInterruptibly() throws InterruptedException;
+
+
     Condition newCondition();
 }

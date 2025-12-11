@@ -18,6 +18,6 @@ public interface LockNotifyMapper extends BaseMapper<LockNotify> {
     // 删除指定锁的历史通知
     int deleteByLockKey(@Param("lockKey") String lockKey);
 
-    // 新增：插入通知记录
-    void insertNotify(@Param("lockKey") String lockKey, @Param("sequence") Long sequence, @Param("notifyTime") LocalDateTime notifyTime);
+    // 插入通知记录
+    void insertNotify(LockNotify notify);
 }

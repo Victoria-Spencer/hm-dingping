@@ -188,6 +188,8 @@ public class DatabaseDLock implements DLock {
     @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
     public Boolean tryAcquire(long leaseMillis) {
         String holder = getHolder();
+        // TODO
+        System.out.println("tryLock:holder:" + holder);
         LocalDateTime expireTime = LocalDateTime.now().plus(leaseMillis, ChronoUnit.MILLIS);
 
         try {
@@ -242,6 +244,8 @@ public class DatabaseDLock implements DLock {
     @Transactional(rollbackFor = Exception.class)
     public void unlock() {
         String holder = holderThreadLocal.get();
+        // TODO test
+        System.out.println("unlock:threadId:" + holder);
         if (holder == null) {
             throw new IllegalMonitorStateException("未持有锁，无法释放: " + lockKey);
         }

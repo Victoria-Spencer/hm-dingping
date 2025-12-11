@@ -86,7 +86,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         }
 
         try {
-            Thread.sleep(30000);
+            Thread.sleep(2000);
             return thisProxy.createVoucherOrder(voucherId);
         } finally {
             lock.unlock();

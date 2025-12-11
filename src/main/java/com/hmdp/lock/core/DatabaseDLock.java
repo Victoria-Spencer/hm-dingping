@@ -4,12 +4,15 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.hmdp.lock.entity.DistributedLock;
 import com.hmdp.lock.entity.LockNotify;
 import com.hmdp.lock.exception.LockAcquireFailedException;
+import com.hmdp.lock.exception.LockRenewalFailedException;
 import com.hmdp.lock.listener.LockNotifyListener;
 import com.hmdp.lock.mapper.DistributedLockMapper;
 import com.hmdp.lock.mapper.LockNotifyMapper;
 import com.hmdp.lock.mapper.LockSequenceMapper;
+import com.hmdp.lock.mapper.LockWaitQueueMapper;
 import com.hmdp.lock.watchdog.RenewalTask;
 import com.hmdp.lock.watchdog.WatchdogManager;
+import jdk.nashorn.internal.objects.annotations.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
@@ -30,6 +33,7 @@ public class DatabaseDLock implements DLock {
     private final DistributedLockMapper lockMapper;
     private final LockNotifyMapper notifyMapper;
     private final LockSequenceMapper sequenceMapper;
+    private final LockWaitQueueMapper waitQueueMapper;
     private final String instanceUUID;
     private final ThreadLocal<String> holderThreadLocal = new ThreadLocal<>();
     private final ThreadLocal<Integer> reentrantCountThreadLocal = new ThreadLocal<>();
@@ -49,16 +53,19 @@ public class DatabaseDLock implements DLock {
     public DatabaseDLock(String lockKey, DistributedLockMapper lockMapper,
                          LockNotifyMapper notifyMapper,
                          LockSequenceMapper sequenceMapper,
+                         LockWaitQueueMapper waitQueueMapper,
                          String instanceUUID,
                          WatchdogManager watchdogManager) {
         this.lockKey = lockKey;
         this.lockMapper = lockMapper;
         this.notifyMapper = notifyMapper;
         this.sequenceMapper = sequenceMapper;
+        this.waitQueueMapper = waitQueueMapper;
         this.instanceUUID = instanceUUID;
         this.watchdogManager = watchdogManager;
     }
 
+    @Setter
     public void setSelf(DatabaseDLock self) {
         this.self = self;
     }
@@ -138,32 +145,50 @@ public class DatabaseDLock implements DLock {
                 return false;
             }
 
-            // 订阅时传入当前线程标识
-            boolean notified = subscribeAndWait(remaining, getHolder());
+            // 基于序列号订阅等待
+            boolean notified = subscribeAndWait(remaining);
             if (!notified) {
                 return false;
             }
         }
     }
 
-    // 订阅方法：传入线程标识
-    private boolean subscribeAndWait(long timeout, String threadId) throws InterruptedException {
+    private boolean subscribeAndWait(long timeout) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + timeout;
+
+        // 初始化序列号并生成预期序列号（原子递增）
         sequenceMapper.initSequenceIfAbsent(lockKey);
         long expectedSeq = sequenceMapper.incrementAndGet(lockKey);
+        log.debug("锁[{}]订阅序列号:{}，等待超时时间:{}ms", lockKey, expectedSeq, timeout);
 
-        // 传入线程标识订阅
-        CountDownLatch latch = notifyListener.subscribe(lockKey, threadId);
+        // 订阅指定序列号
+        CountDownLatch latch = notifyListener.subscribe(lockKey, expectedSeq);
         try {
-            boolean notified = latch.await(timeout, TimeUnit.MILLISECONDS);
-            if (notified) {
-                // 检查是否是有效通知
-                List<LockNotify> notifications = notifyMapper.selectByLockKeyAndSequence(lockKey, expectedSeq);
-                return !notifications.isEmpty();
+            while (true) {
+                long remaining = deadline - System.currentTimeMillis();
+                if (remaining <= 0) {
+                    log.debug("锁[{}]等待总超时，序列号:{}", lockKey, expectedSeq);
+                    return false;
+                }
+
+                // 等待通知或剩余时间超时
+                boolean notified = latch.await(remaining, TimeUnit.MILLISECONDS);
+                if (notified) {
+                    // 检查是否是目标序列号的通知
+                    List<LockNotify> notifications = notifyMapper.selectByLockKeyAndSequence(lockKey, expectedSeq);
+                    if (!notifications.isEmpty()) {
+                        log.debug("锁[{}]收到有效通知，序列号:{}", lockKey, expectedSeq);
+                        return true;
+                    }
+                    log.debug("锁[{}]收到无效通知，继续等待目标序列号:{}", lockKey, expectedSeq);
+                } else {
+                    log.debug("锁[{}]通知等待超时，序列号:{}，剩余时间:{}ms", lockKey, expectedSeq, remaining);
+                    return false;
+                }
             }
-            return false;
         } finally {
-            // 取消订阅时传入线程标识
-            notifyListener.unsubscribe(lockKey, threadId);
+            // 取消订阅
+            notifyListener.unsubscribe(lockKey, expectedSeq);
         }
     }
 
@@ -232,99 +257,56 @@ public class DatabaseDLock implements DLock {
             int currentCount = getReentrantCount();
             if (currentCount <= 0) {
                 holderThreadLocal.remove();
-                reentrantCountThreadLocal.remove();
-                throw new IllegalMonitorStateException("锁重入计数异常: " + lockKey);
+                throw new IllegalMonitorStateException("锁重入计数异常，无法释放: " + lockKey);
             }
 
-            int newCount = currentCount - 1;
-            setReentrantCount(newCount);
-
-            DistributedLock lock = lockMapper.getLockWithExLock(lockKey);
-            if (lock == null) {
-                log.warn("锁已不存在: {}", lockKey);
-                return;
-            }
-
-            if (!isCurrentHolder(lock, holder)) {
-                throw new IllegalMonitorStateException("释放非当前持有者的锁: " + lockKey);
-            }
-
-            if (newCount > 0) {
+            // 重入计数减1
+            if (currentCount > 1) {
+                // 非最后一次释放，仅减少计数并续期
                 LocalDateTime newExpire = LocalDateTime.now().plus(leaseTime, ChronoUnit.MILLIS);
-                lockMapper.decrementReentrantCount(lockKey, holder, newExpire);
-                log.debug("锁重入计数更新: {}，新计数: {}", lockKey, newCount);
+                int updateCount = lockMapper.decrementReentrantCount(lockKey, holder, newExpire);
+                if (updateCount > 0) {
+                    setReentrantCount(currentCount - 1);
+                    log.debug("锁[{}]重入计数减少，当前计数: {}", lockKey, currentCount - 1);
+                } else {
+                    throw new IllegalMonitorStateException("锁持有者不匹配，无法释放: " + lockKey);
+                }
             } else {
-                // 删除锁记录
-                lockMapper.delete(new QueryWrapper<DistributedLock>()
-                        .eq("lock_key", lockKey)
-                        .eq("holder", holder));
-
-                // 生成通知（无需目标线程ID，唤醒所有订阅者）
-                sequenceMapper.initSequenceIfAbsent(lockKey);
-                Long sequence = sequenceMapper.incrementAndGet(lockKey);
-                LockNotify notify = new LockNotify();
-                notify.setLockKey(lockKey);
-                notify.setSequence(sequence);
-                notify.setNotifyTime(LocalDateTime.now());
-                notifyMapper.insert(notify);
-                log.debug("插入锁释放通知: {}，序列号: {}", lockKey, sequence);
-
-                stopRenewalTask();
-            }
-            log.debug("释放锁成功: {}，当前计数: {}", lockKey, newCount);
-        } catch (Exception e) {
-            log.error("释放锁异常: {}", lockKey, e);
-            throw new RuntimeException("释放锁失败", e);
-        }
-    }
-
-    private void startRenewalIfNeeded(long leaseMillis) {
-        if (useWatchDog) {
-            long renewalInterval = leaseMillis / 3;
-            startRenewalTask(renewalInterval);
-        }
-    }
-
-    private void startRenewalTask(long intervalMillis) {
-        String originalHolder = getHolder();
-        RenewalTask renewalTask = new RenewalTask() {
-            @Override
-            public String getLockKey() {
-                return lockKey;
-            }
-
-            @Override
-            public void run() {
-                try {
-                    long actualLeaseTime = useWatchDog ? DEFAULT_LEASE_TIME : leaseTime;
-                    LocalDateTime newExpire = LocalDateTime.now().plus(actualLeaseTime, ChronoUnit.MILLIS);
-                    int updateCount = lockMapper.extendLockExpire(lockKey, originalHolder, newExpire);
-
-                    if (updateCount == 0) {
-                        log.warn("锁续期失败，可能已被释放: {}", lockKey);
+                // 最后一次释放，删除锁记录
+                int deleteCount = lockMapper.delete(
+                        new QueryWrapper<DistributedLock>()
+                                .eq("lock_key", lockKey)
+                                .eq("holder", holder)
+                );
+                if (deleteCount > 0) {
+                    setReentrantCount(0);
+                    // 停止看门狗续期
+                    if (useWatchDog) {
                         watchdogManager.cancelRenewalTask(lockKey);
-                    } else {
-                        log.trace("锁续期成功: {}，新过期时间: {}", lockKey, newExpire);
                     }
-                } catch (Exception e) {
-                    log.error("锁续期任务异常: {}", lockKey, e);
-                    watchdogManager.cancelRenewalTask(lockKey);
+                    log.debug("锁[{}]完全释放", lockKey);
+
+                    // ====== 释放锁成功后，生成通知给下一个等待者 ======
+                    // 获取全局最小等待序列号
+                    Long minSequence = notifyListener.getMinWaitingSequence(lockKey);
+                    if (minSequence != null) {
+                        // 插入通知记录
+                        LockNotify notify = new LockNotify();
+                        notify.setLockKey(lockKey);
+                        notify.setSequence(minSequence);
+                        notify.setNotifyTime(LocalDateTime.now());
+                        notifyMapper.insertNotify(lockKey, minSequence, LocalDateTime.now());
+                        log.debug("锁[{}]释放，通知下一个等待者，序列号:{}", lockKey, minSequence);
+                    }
+                    // ===================================================
+                } else {
+                    throw new IllegalMonitorStateException("锁持有者不匹配或已释放，无法释放: " + lockKey);
                 }
             }
-        };
-
-        watchdogManager.submitRenewalTask(
-                lockKey,
-                renewalTask,
-                intervalMillis,
-                intervalMillis,
-                TimeUnit.MILLISECONDS
-        );
-        log.debug("通过看门狗启动续期任务: {}，间隔: {}ms", lockKey, intervalMillis);
-    }
-
-    private void stopRenewalTask() {
-        watchdogManager.cancelRenewalTask(lockKey);
+        } catch (Exception e) {
+            log.error("释放锁异常: {}", lockKey, e);
+            throw new RuntimeException("释放锁失败: " + lockKey, e);
+        }
     }
 
     private boolean isLockExpired(DistributedLock lock) {
@@ -335,14 +317,46 @@ public class DatabaseDLock implements DLock {
         return holder.equals(lock.getHolder());
     }
 
-    @Override
-    public Condition newCondition() {
-        throw new UnsupportedOperationException("不支持条件锁");
+    private void startRenewalIfNeeded(long leaseMillis) {
+        if (useWatchDog) {
+            // 用匿名内部类实现 RenewalTask，显式覆盖所有抽象方法
+            RenewalTask task = new RenewalTask() {
+                @Override
+                public void run() { // 实现 Runnable 的 run() 方法
+                    try {
+                        LocalDateTime newExpire = LocalDateTime.now().plus(DEFAULT_LEASE_TIME, ChronoUnit.MILLIS);
+                        int update = lockMapper.extendLockExpire(lockKey, getHolder(), newExpire);
+                        if (update <= 0) {
+                            throw new LockRenewalFailedException("锁续期失败: " + lockKey);
+                        }
+                        log.debug("锁[{}]续期成功，新过期时间:{}", lockKey, newExpire);
+                    } catch (Exception e) {
+                        log.error("锁[{}]续期异常", lockKey, e);
+                        throw new LockRenewalFailedException("锁续期异常: " + lockKey);
+                    }
+                }
+
+                @Override
+                public String getLockKey() { // 实现 RenewalTask 自身的 getLockKey() 方法
+                    return lockKey; // 返回当前锁的 key
+                }
+            };
+            // 提交续期任务
+            watchdogManager.submitRenewalTask(lockKey, task, leaseMillis / 3, leaseMillis / 3, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    private void cancelRenewal() {
+        watchdogManager.cancelRenewalTask(lockKey);
     }
 
     public void forceCleanThreadLocal() {
         holderThreadLocal.remove();
         reentrantCountThreadLocal.remove();
-        log.trace("强制清理锁[{}]的ThreadLocal资源", lockKey);
+    }
+
+    @Override
+    public Condition newCondition() {
+        throw new UnsupportedOperationException("分布式锁不支持Condition");
     }
 }

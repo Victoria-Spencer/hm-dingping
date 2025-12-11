@@ -1,62 +1,86 @@
 package com.hmdp.lock.listener;
 
 import com.hmdp.lock.entity.LockNotify;
+import com.hmdp.lock.entity.LockWaitQueue;
 import com.hmdp.lock.mapper.LockNotifyMapper;
 import com.hmdp.lock.mapper.LockSequenceMapper;
+import com.hmdp.lock.mapper.LockWaitQueueMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 @Component
 @Slf4j
 public class LockNotifyListener {
-    // 存储结构：lockKey -> (threadId -> CountDownLatch)
-    private final ConcurrentMap<String, ConcurrentMap<String, CountDownLatch>> latchMap = new ConcurrentHashMap<>();
+    // 本地缓存：只存储当前实例的等待信号量
+    private final ConcurrentMap<String, ConcurrentMap<Long, CountDownLatch>> localLatchMap = new ConcurrentHashMap<>();
     // 存储每个锁的订阅状态
     private final ConcurrentMap<String, Boolean> subscribedMap = new ConcurrentHashMap<>();
+    // 实例ID
+    private final String instanceId = java.util.UUID.randomUUID().toString();
 
     @Autowired
     private LockNotifyMapper notifyMapper;
     @Autowired
     private LockSequenceMapper sequenceMapper;
+    @Autowired
+    private LockWaitQueueMapper waitQueueMapper;
 
     /**
-     * 订阅锁释放通知（传入线程标识）
+     * 订阅锁释放通知（传入序列号）
      */
-    public CountDownLatch subscribe(String lockKey, String threadId) {
-        // 初始化二级Map（lockKey对应的所有线程）
-        ConcurrentMap<String, CountDownLatch> threadLatches = latchMap.computeIfAbsent(lockKey, k -> new ConcurrentHashMap<>());
-        // 初始化当前线程的信号量
+    public CountDownLatch subscribe(String lockKey, long sequence) {
+        // 初始化本地信号量
+        ConcurrentMap<Long, CountDownLatch> sequenceLatches = localLatchMap.computeIfAbsent(lockKey, k -> new ConcurrentHashMap<>());
         CountDownLatch latch = new CountDownLatch(1);
-        threadLatches.put(threadId, latch);
+        sequenceLatches.put(sequence, latch);
+
+        // 将序列号添加到分布式等待队列
+        LocalDateTime now = LocalDateTime.now();
+        waitQueueMapper.addToQueue(
+                lockKey,
+                sequence,
+                instanceId,
+                now,
+                now.plus(30, ChronoUnit.SECONDS) // 30秒过期
+        );
 
         // 检查是否已订阅，避免重复启动监听线程
         subscribedMap.computeIfAbsent(lockKey, k -> {
             new Thread(() -> {
                 try {
-                    long lastSequence = sequenceMapper.selectCurrentSequence(lockKey);
+                    // 初始序列号从0开始
+                    long lastSequence = 0;
                     while (subscribedMap.getOrDefault(lockKey, false)) {
-                        // 查询最新通知
+                        // 查询最新通知（序列号大于lastSequence的）
                         List<LockNotify> notifications = notifyMapper.selectByLockKeyAndSequence(lockKey, lastSequence + 1);
                         if (!notifications.isEmpty()) {
                             LockNotify notify = notifications.get(0);
                             lastSequence = notify.getSequence();
-                            // 唤醒所有订阅该锁的线程（核心变更）
-                            ConcurrentMap<String, CountDownLatch> currentThreadLatches = latchMap.get(lockKey);
-                            if (currentThreadLatches != null && !currentThreadLatches.isEmpty()) {
-                                for (CountDownLatch threadLatch : currentThreadLatches.values()) {
-                                    threadLatch.countDown(); // 唤醒单个线程
+
+                            // 检查是否是当前实例的等待序列
+                            ConcurrentMap<Long, CountDownLatch> currentLatches = localLatchMap.get(lockKey);
+                            if (currentLatches != null) {
+                                CountDownLatch targetLatch = currentLatches.remove(lastSequence);
+                                if (targetLatch != null) {
+                                    targetLatch.countDown(); // 唤醒当前序列号对应的线程
+                                    log.debug("唤醒锁[{}]的等待线程，序列号:{}", lockKey, lastSequence);
                                 }
-                                log.debug("唤醒所有订阅锁[{}]的线程，共{}个", lockKey, currentThreadLatches.size());
                             }
+
+                            // 从分布式队列中移除已通知的序列号
+                            waitQueueMapper.removeFromQueue(lockKey, lastSequence);
                         }
                         // 降低查询频率
                         TimeUnit.MILLISECONDS.sleep(50);
@@ -72,41 +96,60 @@ public class LockNotifyListener {
     }
 
     /**
-     * 取消订阅（指定线程）
+     * 取消订阅（指定序列号）
      */
-    public void unsubscribe(String lockKey, String threadId) {
-        ConcurrentMap<String, CountDownLatch> threadLatches = latchMap.get(lockKey);
-        if (threadLatches != null) {
-            threadLatches.remove(threadId);
-            // 若二级Map为空，清理一级Map和订阅状态
-            if (threadLatches.isEmpty()) {
-                latchMap.remove(lockKey);
+    public void unsubscribe(String lockKey, long sequence) {
+        // 移除本地信号量
+        ConcurrentMap<Long, CountDownLatch> sequenceLatches = localLatchMap.get(lockKey);
+        if (sequenceLatches != null) {
+            sequenceLatches.remove(sequence);
+
+            // 若本地缓存为空，清理并取消订阅
+            if (sequenceLatches.isEmpty()) {
+                localLatchMap.remove(lockKey);
                 subscribedMap.remove(lockKey);
             }
         }
+
+        // 从分布式队列中移除
+        waitQueueMapper.removeFromQueue(lockKey, sequence);
     }
 
     /**
-     * 定期清理过期线程（如每30秒）
+     * 获取全局最小的等待序列号
+     */
+    public Long getMinWaitingSequence(String lockKey) {
+        // 先清理过期记录
+        waitQueueMapper.cleanExpired(lockKey, LocalDateTime.now());
+        // 查询全局最小序列号
+        return waitQueueMapper.selectMinSequence(lockKey);
+    }
+
+    /**
+     * 定期清理过期序列号
      */
     @Scheduled(fixedRate = 30000)
-    public void cleanExpiredThreads() {
-        for (String lockKey : latchMap.keySet()) {
-            ConcurrentMap<String, CountDownLatch> threadLatches = latchMap.get(lockKey);
-            if (threadLatches == null) continue;
+    public void cleanExpiredSequences() {
+        LocalDateTime now = LocalDateTime.now();
 
-            // 遍历线程，移除已中断/失效的线程（可结合线程状态判断）
-            threadLatches.keySet().removeIf(threadId -> {
-                // 此处可根据实际场景判断线程是否过期（例如：通过线程ID查询线程状态）
-                boolean isExpired = false;
-                // 示例：假设threadId包含线程ID，可尝试判断线程是否存活
-                // ...
-                return isExpired;
-            });
+        // 清理分布式队列中的过期记录
+        for (String lockKey : localLatchMap.keySet()) {
+            waitQueueMapper.cleanExpired(lockKey, now);
+        }
 
-            // 清理后若为空，停止监听
-            if (threadLatches.isEmpty()) {
-                latchMap.remove(lockKey);
+        // 清理本地缓存中已过期且不在队列中的记录
+        for (String lockKey : localLatchMap.keySet()) {
+            ConcurrentMap<Long, CountDownLatch> sequenceLatches = localLatchMap.get(lockKey);
+            if (sequenceLatches == null) continue;
+
+            List<Long> toRemove = sequenceLatches.keySet().stream()
+                    .filter(seq -> !waitQueueMapper.exists(lockKey, seq, instanceId))
+                    .collect(Collectors.toList());
+
+            toRemove.forEach(seq -> sequenceLatches.remove(seq));
+
+            if (sequenceLatches.isEmpty()) {
+                localLatchMap.remove(lockKey);
                 subscribedMap.remove(lockKey);
             }
         }

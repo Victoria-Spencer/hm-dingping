@@ -7,6 +7,9 @@
         UPDATE lock_sequence
         SET current_sequence = current_sequence + 1
         WHERE lock_key = #{lockKey}
+        <selectKey resultType="java.lang.Long" keyProperty="sequence" order="AFTER">
+            SELECT current_sequence FROM lock_sequence WHERE lock_key = #{lockKey}
+        </selectKey>
     </update>
 
     <!-- 初始化序列号记录（不存在则创建） -->

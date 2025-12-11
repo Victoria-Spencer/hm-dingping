@@ -5,6 +5,7 @@ import com.hmdp.lock.client.RedissonStyleDistributedLockClient;
 import com.hmdp.lock.mapper.DistributedLockMapper;
 import com.hmdp.lock.mapper.LockNotifyMapper;
 import com.hmdp.lock.mapper.LockSequenceMapper;
+import com.hmdp.lock.mapper.LockWaitQueueMapper;
 import com.hmdp.lock.task.DistributedLockCleanTask;
 import com.hmdp.lock.watchdog.WatchdogManager;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -27,13 +28,14 @@ public class DistributedLockAutoConfiguration {
     // 注册分布式锁客户端（修复参数问题：添加WatchdogManager参数）
     @Bean
     @ConditionalOnMissingBean
-    @ConditionalOnBean({DistributedLockMapper.class, LockNotifyMapper.class, LockSequenceMapper.class, WatchdogManager.class})
+    @ConditionalOnBean({DistributedLockMapper.class, LockNotifyMapper.class, LockSequenceMapper.class, LockWaitQueueMapper.class, WatchdogManager.class})
     public DistributedLockClient distributedLockClient(
             DistributedLockMapper lockMapper,
             LockNotifyMapper notifyMapper,
             LockSequenceMapper sequenceMapper,
+            LockWaitQueueMapper waitQueueMapper,
             WatchdogManager watchdogManager) {
-        return new RedissonStyleDistributedLockClient(lockMapper, notifyMapper, sequenceMapper, watchdogManager);
+        return new RedissonStyleDistributedLockClient(lockMapper, notifyMapper, sequenceMapper, waitQueueMapper, watchdogManager);
     }
 
     // 注册看门狗管理器（从配置中获取参数）

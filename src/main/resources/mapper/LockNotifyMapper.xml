@@ -16,4 +16,10 @@
     <delete id="deleteByLockKey">
         DELETE FROM lock_notify WHERE lock_key = #{lockKey}
     </delete>
+
+    <!-- 插入锁释放通知 -->
+    <insert id="insertNotify">
+        INSERT INTO lock_notify (lock_key, sequence, notify_time)
+        VALUES (#{lockKey}, #{sequence}, #{notifyTime})
+    </insert>
 </mapper>

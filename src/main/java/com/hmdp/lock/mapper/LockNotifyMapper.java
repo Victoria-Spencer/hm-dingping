@@ -5,6 +5,7 @@ import com.hmdp.lock.entity.LockNotify;
 import org.apache.ibatis.annotations.Param;
 import org.springframework.stereotype.Repository;
 import java.util.List;
+import java.time.LocalDateTime;
 
 @Repository
 public interface LockNotifyMapper extends BaseMapper<LockNotify> {
@@ -16,4 +17,7 @@ public interface LockNotifyMapper extends BaseMapper<LockNotify> {
 
     // 删除指定锁的历史通知
     int deleteByLockKey(@Param("lockKey") String lockKey);
+
+    // 新增：插入通知记录
+    void insertNotify(@Param("lockKey") String lockKey, @Param("sequence") Long sequence, @Param("notifyTime") LocalDateTime notifyTime);
 }

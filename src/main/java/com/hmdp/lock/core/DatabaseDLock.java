@@ -37,7 +37,6 @@ public class DatabaseDLock implements DLock {
     private final LockNotifyMapper notifyMapper;
     private final LockSequenceMapper sequenceMapper;
     private final LockWaitQueueMapper waitQueueMapper;
-    private final String instanceUUID;
     private final ThreadLocal<String> holderThreadLocal = new ThreadLocal<>();
     private final ThreadLocal<Integer> reentrantCountThreadLocal = new ThreadLocal<>();
     private final WatchdogManager watchdogManager;
@@ -54,19 +53,19 @@ public class DatabaseDLock implements DLock {
     private DatabaseDLock self;
     @Autowired
     private LockNotifyListener notifyListener;
+    @Autowired
+    private String instanceUUID;
 
     public DatabaseDLock(String lockKey, DistributedLockMapper lockMapper,
                          LockNotifyMapper notifyMapper,
                          LockSequenceMapper sequenceMapper,
                          LockWaitQueueMapper waitQueueMapper,
-                         String instanceUUID,
                          WatchdogManager watchdogManager) {
         this.lockKey = lockKey;
         this.lockMapper = lockMapper;
         this.notifyMapper = notifyMapper;
         this.sequenceMapper = sequenceMapper;
         this.waitQueueMapper = waitQueueMapper;
-        this.instanceUUID = instanceUUID;
         this.watchdogManager = watchdogManager;
     }
 

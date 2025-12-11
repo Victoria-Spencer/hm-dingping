@@ -25,9 +25,6 @@ public class DatabaseDLockFactoryBean implements FactoryBean<DatabaseDLock> {
     private WatchdogManager watchdogManager;
     @Autowired
     private ApplicationContext applicationContext;
-
-    // 每台机器唯一
-    private final String instanceUUID = UUID.randomUUID().toString(true);
     // 动态lockKey，每次创建实例前设置
     private String currentLockKey;
 
@@ -41,7 +38,7 @@ public class DatabaseDLockFactoryBean implements FactoryBean<DatabaseDLock> {
     public DatabaseDLock getObject() {
         DatabaseDLock lock = new DatabaseDLock(
                 currentLockKey, lockMapper, notifyMapper, sequenceMapper,
-                waitQueueMapper, instanceUUID, watchdogManager
+                waitQueueMapper, watchdogManager
         );
         // 让Spring为手动创建的实例注入@Autowired依赖（如notifyListener、self）
         applicationContext.getAutowireCapableBeanFactory().autowireBean(lock);

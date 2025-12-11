@@ -29,13 +29,8 @@ public class DistributedLockAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnBean({DistributedLockMapper.class, LockNotifyMapper.class, LockSequenceMapper.class, LockWaitQueueMapper.class, WatchdogManager.class})
-    public DistributedLockClient distributedLockClient(
-            DistributedLockMapper lockMapper,
-            LockNotifyMapper notifyMapper,
-            LockSequenceMapper sequenceMapper,
-            LockWaitQueueMapper waitQueueMapper,
-            WatchdogManager watchdogManager) {
-        return new RedissonStyleDistributedLockClient(lockMapper, notifyMapper, sequenceMapper, waitQueueMapper, watchdogManager);
+    public DistributedLockClient distributedLockClient() {
+        return new RedissonStyleDistributedLockClient();
     }
 
     // 注册看门狗管理器（从配置中获取参数）

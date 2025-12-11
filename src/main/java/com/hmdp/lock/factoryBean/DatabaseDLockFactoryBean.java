@@ -1,5 +1,6 @@
 package com.hmdp.lock.factoryBean;
 
+import cn.hutool.core.lang.UUID;
 import com.hmdp.lock.core.DatabaseDLock;
 import com.hmdp.lock.mapper.DistributedLockMapper;
 import com.hmdp.lock.mapper.LockNotifyMapper;
@@ -8,11 +9,8 @@ import com.hmdp.lock.mapper.LockWaitQueueMapper;
 import com.hmdp.lock.watchdog.WatchdogManager;
 import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationContext;
-import org.springframework.stereotype.Component;
 
-@Component
 public class DatabaseDLockFactoryBean implements FactoryBean<DatabaseDLock> {
     // 注入DatabaseDLock所需的依赖（均为容器内Bean）
     @Autowired
@@ -25,12 +23,11 @@ public class DatabaseDLockFactoryBean implements FactoryBean<DatabaseDLock> {
     private LockWaitQueueMapper waitQueueMapper;
     @Autowired
     private WatchdogManager watchdogManager;
-    @Value("${lock.instance-uuid}")
-    private String instanceUUID;
-
     @Autowired
     private ApplicationContext applicationContext;
 
+    // 每台机器唯一
+    private final String instanceUUID = UUID.randomUUID().toString(true);
     // 动态lockKey，每次创建实例前设置
     private String currentLockKey;
 
@@ -56,9 +53,9 @@ public class DatabaseDLockFactoryBean implements FactoryBean<DatabaseDLock> {
         return DatabaseDLock.class;
     }
 
-    // 非单例，每次创建新实例
+    // 确保是单例，避免重复创建
     @Override
     public boolean isSingleton() {
-        return false;
+        return true;
     }
 }

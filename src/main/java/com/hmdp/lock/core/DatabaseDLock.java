@@ -28,7 +28,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 
-@Component
 @Slf4j
 @Scope("prototype")  // 每次获取Bean时创建新实例
 public class DatabaseDLock implements DLock {

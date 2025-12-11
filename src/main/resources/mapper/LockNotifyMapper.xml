@@ -8,7 +8,7 @@
     <select id="selectByLockKeyAndSequence" resultType="com.hmdp.lock.entity.LockNotify">
         SELECT id, lock_key, sequence, notify_time
         FROM lock_notify
-        WHERE lock_key = #{lockKey} AND sequence >= #{sequence}
+        WHERE lock_key = #{lockKey} AND sequence &gt;= #{sequence}
         ORDER BY sequence ASC
             LIMIT 1
     </select>

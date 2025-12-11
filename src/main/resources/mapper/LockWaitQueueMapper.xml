@@ -13,16 +13,16 @@
 
     <select id="selectMinSequence" resultType="java.lang.Long">
         SELECT MIN(sequence) FROM lock_wait_queue
-        WHERE lock_key = #{lockKey} AND expire_time > NOW()
+        WHERE lock_key = #{lockKey} AND expire_time &gt; NOW()
     </select>
 
     <delete id="cleanExpired">
         DELETE FROM lock_wait_queue
-        WHERE lock_key = #{lockKey} AND expire_time <= #{now}
+        WHERE lock_key = #{lockKey} AND expire_time &lt;= #{now}
     </delete>
 
     <select id="exists" resultType="java.lang.Boolean">
-        SELECT COUNT(1) > 0 FROM lock_wait_queue
+        SELECT COUNT(1) &gt; 0 FROM lock_wait_queue
         WHERE lock_key = #{lockKey} AND sequence = #{sequence} AND instance_id = #{instanceId}
     </select>
 </mapper>

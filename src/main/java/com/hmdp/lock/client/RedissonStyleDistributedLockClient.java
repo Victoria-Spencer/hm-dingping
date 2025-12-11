@@ -8,11 +8,16 @@ import com.hmdp.lock.core.DatabaseDLock;
 import com.hmdp.lock.mapper.LockSequenceMapper;
 import com.hmdp.lock.mapper.LockWaitQueueMapper;
 import com.hmdp.lock.watchdog.WatchdogManager;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
 // 客户端实现类
 @Component
 public class RedissonStyleDistributedLockClient implements DistributedLockClient {
+
+    @Autowired
+    private ApplicationContext applicationContext;
 
     private final DistributedLockMapper lockMapper;
     private final LockNotifyMapper notifyMapper;
@@ -49,15 +54,8 @@ public class RedissonStyleDistributedLockClient implements DistributedLockClient
 
     @Override
     public DLock getLock(String lockKey) {
-        DatabaseDLock lock = new DatabaseDLock(
-                lockKey,
-                lockMapper,
-                notifyMapper,
-                sequenceMapper,
-                waitQueueMapper,
-                instanceUUID,
-                watchdogManager);
-        lock.setSelf(lock);
-        return lock;
+        return applicationContext.getBean(DatabaseDLock.class,
+                lockKey, lockMapper, notifyMapper, sequenceMapper, waitQueueMapper, instanceUUID, watchdogManager
+        );
     }
 }

@@ -16,6 +16,8 @@ import jdk.nashorn.internal.objects.annotations.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.context.annotation.Scope;
+import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,7 +28,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 
+@Component
 @Slf4j
+@Scope("prototype")  // 每次获取Bean时创建新实例
 public class DatabaseDLock implements DLock {
 
     private final String lockKey;
@@ -65,11 +69,6 @@ public class DatabaseDLock implements DLock {
         this.waitQueueMapper = waitQueueMapper;
         this.instanceUUID = instanceUUID;
         this.watchdogManager = watchdogManager;
-    }
-
-    @Setter
-    public void setSelf(DatabaseDLock self) {
-        this.self = self;
     }
 
     private String getHolder() {
@@ -328,12 +327,14 @@ public class DatabaseDLock implements DLock {
     private void startRenewalIfNeeded(long leaseMillis) {
         if (useWatchDog) {
             // 创建续期任务
+            // 启动续期任务时传入holder
+            String currentLockHolder = getHolder(); // 原业务线程的holder
             RenewalTask renewalTask = new RenewalTask() {
                 @Override
                 public void run() {
                     try {
                         LocalDateTime newExpire = LocalDateTime.now().plus(leaseMillis, ChronoUnit.MILLIS);
-                        int updateCount = lockMapper.extendLockExpire(lockKey, getHolder(), newExpire);
+                        int updateCount = lockMapper.extendLockExpire(lockKey, currentLockHolder, newExpire);
                         if (updateCount <= 0) {
                             throw new LockRenewalFailedException("锁续期失败: " + lockKey);
                         }
@@ -355,7 +356,7 @@ public class DatabaseDLock implements DLock {
             watchdogManager.submitRenewalTask(
                     lockKey,
                     renewalTask,
-                    0, // 立即开始
+                    renewalInterval * 2, // 立即开始
                     renewalInterval,
                     TimeUnit.MILLISECONDS
             );

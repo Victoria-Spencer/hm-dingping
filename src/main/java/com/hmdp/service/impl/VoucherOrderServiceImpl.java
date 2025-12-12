@@ -78,7 +78,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         DLock lock = distributedLockClient.getLock("lock:order" + userId);
 //
 //        boolean isLock = lock.tryLock();
-        boolean isLock = lock.tryLock(30L, -1, TimeUnit.SECONDS);
+        boolean isLock = lock.tryLock(110L, -1, TimeUnit.SECONDS);
 //        boolean isLock = lock.tryLock();
 
         if (!isLock) {
@@ -86,7 +86,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         }
 
         try {
-//            Thread.sleep(5000);
+            Thread.sleep(100000);
             return thisProxy.createVoucherOrder(voucherId);
         } finally {
             lock.unlock();

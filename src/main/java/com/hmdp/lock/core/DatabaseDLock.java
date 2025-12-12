@@ -307,6 +307,15 @@ public class DatabaseDLock implements DLock {
 
     private void notifyWaiters() {
         try {
+            // 先检查是否存在有效的等待者（全局最小序列号不为null则表示有等待）
+            Long minSequence = notifyListener.getMinWaitingSequence(lockKey);
+            if (minSequence == null) {
+                log.debug("锁[{}]无等待队列，无需通知", lockKey);
+                return; // 无等待者，直接返回
+            }
+
+            // 存在等待者，才执行序列号递增和通知插入
+            sequenceMapper.initSequenceIfAbsent(lockKey);  // 不存在，则新增（兜底）
             long newSeq = sequenceMapper.incrementAndGet(lockKey);
             LockNotify notify = new LockNotify();
             notify.setLockKey(lockKey);

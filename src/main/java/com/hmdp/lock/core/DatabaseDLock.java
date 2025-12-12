@@ -163,7 +163,9 @@ public class DatabaseDLock implements DLock {
         long expectedSeq = sequenceMapper.incrementAndGet(lockKey);
         log.debug("锁[{}]订阅序列号:{}，等待超时时间:{}ms", lockKey, expectedSeq, timeout);
 
-        CountDownLatch latch = notifyListener.subscribe(lockKey, expectedSeq);
+        // 传递当前锁的租期（使用实际生效的租期）
+        long effectiveLeaseTime = useWatchDog ? DEFAULT_LEASE_TIME : this.leaseTime;
+        CountDownLatch latch = notifyListener.subscribe(lockKey, expectedSeq, effectiveLeaseTime);
         try {
             while (true) {
                 long remaining = deadline - System.currentTimeMillis();

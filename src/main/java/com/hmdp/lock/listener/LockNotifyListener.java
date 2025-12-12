@@ -40,20 +40,21 @@ public class LockNotifyListener {
     /**
      * 订阅锁释放通知（传入序列号）
      */
-    public CountDownLatch subscribe(String lockKey, long sequence) {
+    public CountDownLatch subscribe(String lockKey, long sequence, long leaseTime) {
         // 初始化本地信号量
         ConcurrentMap<Long, CountDownLatch> sequenceLatches = localLatchMap.computeIfAbsent(lockKey, k -> new ConcurrentHashMap<>());
         CountDownLatch latch = new CountDownLatch(1);
         sequenceLatches.put(sequence, latch);
 
-        // 将序列号添加到分布式等待队列
+        // 计算等待队列过期时间：设置为锁租期的1.5倍（确保在锁过期前不会提前失效）
         LocalDateTime now = LocalDateTime.now();
+        long waitQueueExpireMillis = (long) (leaseTime * 1.5);
         waitQueueMapper.addToQueue(
                 lockKey,
                 sequence,
                 instanceId,
                 now,
-                now.plus(30, ChronoUnit.SECONDS) // 30秒过期
+                now.plus(waitQueueExpireMillis, ChronoUnit.MILLIS) // 基于租期动态计算
         );
 
         // 检查是否已订阅，避免重复启动监听线程

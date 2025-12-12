@@ -1,12 +1,12 @@
 package com.hmdp.lock.factoryBean;
 
-import cn.hutool.core.lang.UUID;
 import com.hmdp.lock.core.DatabaseDLock;
 import com.hmdp.lock.mapper.DistributedLockMapper;
 import com.hmdp.lock.mapper.LockNotifyMapper;
 import com.hmdp.lock.mapper.LockSequenceMapper;
 import com.hmdp.lock.mapper.LockWaitQueueMapper;
 import com.hmdp.lock.watchdog.WatchdogManager;
+import jdk.nashorn.internal.objects.annotations.Setter;
 import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
@@ -29,6 +29,7 @@ public class DatabaseDLockFactoryBean implements FactoryBean<DatabaseDLock> {
     private String currentLockKey;
 
     // 设置当前要创建的lockKey
+    @Setter
     public void setCurrentLockKey(String currentLockKey) {
         this.currentLockKey = currentLockKey;
     }
@@ -40,8 +41,10 @@ public class DatabaseDLockFactoryBean implements FactoryBean<DatabaseDLock> {
                 currentLockKey, lockMapper, notifyMapper, sequenceMapper,
                 waitQueueMapper, watchdogManager
         );
-        // 让Spring为手动创建的实例注入@Autowired依赖（如notifyListener、self）
+        // 1. 先触发Spring自动注入（处理其他@Autowired依赖，如notifyListener）
         applicationContext.getAutowireCapableBeanFactory().autowireBean(lock);
+        // 2. 手动绑定self为当前实例
+        lock.setSelf(lock);
         return lock;
     }
 

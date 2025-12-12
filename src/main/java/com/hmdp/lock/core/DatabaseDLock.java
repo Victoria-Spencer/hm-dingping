@@ -17,7 +17,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.context.annotation.Scope;
-import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -67,6 +66,12 @@ public class DatabaseDLock implements DLock {
         this.sequenceMapper = sequenceMapper;
         this.waitQueueMapper = waitQueueMapper;
         this.watchdogManager = watchdogManager;
+    }
+
+    // setSelf方法，用于手动绑定自身实例
+    @Setter
+    public void setSelf(DatabaseDLock self) {
+        this.self = self;
     }
 
     private String getHolder() {
@@ -188,8 +193,6 @@ public class DatabaseDLock implements DLock {
     @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
     public Boolean tryAcquire(long leaseMillis) {
         String holder = getHolder();
-        // TODO
-        System.out.println("tryLock:holder:" + holder);
         LocalDateTime expireTime = LocalDateTime.now().plus(leaseMillis, ChronoUnit.MILLIS);
 
         try {
@@ -244,8 +247,6 @@ public class DatabaseDLock implements DLock {
     @Transactional(rollbackFor = Exception.class)
     public void unlock() {
         String holder = holderThreadLocal.get();
-        // TODO test
-        System.out.println("unlock:threadId:" + holder);
         if (holder == null) {
             throw new IllegalMonitorStateException("未持有锁，无法释放: " + lockKey);
         }
@@ -329,8 +330,7 @@ public class DatabaseDLock implements DLock {
     private void startRenewalIfNeeded(long leaseMillis) {
         if (useWatchDog) {
             // 创建续期任务
-            // 启动续期任务时传入holder
-            String currentLockHolder = getHolder(); // 原业务线程的holder
+            String currentLockHolder = getHolder();
             RenewalTask renewalTask = new RenewalTask() {
                 @Override
                 public void run() {

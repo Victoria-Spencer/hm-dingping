@@ -80,13 +80,12 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 //        boolean isLock = lock.tryLock();
         boolean isLock = lock.tryLock(40L, -1, TimeUnit.SECONDS);
 //        boolean isLock = lock.tryLock();
-
         if (!isLock) {
             throw new RuntimeException("不允许重复下单");
         }
 
         try {
-            Thread.sleep(20000);
+//            Thread.sleep(20000);
             return thisProxy.createVoucherOrder(voucherId);
         } finally {
             lock.unlock();

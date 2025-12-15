@@ -40,15 +40,15 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private DistributedLockClient distributedLockClient;
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
-    @Autowired
-    private RedissonClient redissonClient;
+    /*@Autowired
+    private RedissonClient redissonClient;*/
 
     /**
      * 下单秒杀优惠券
      * @param voucherId
      * @return
      */
-    public Long seckillVoucher(Long voucherId) throws Exception {
+    public Long seckillVoucher(Long voucherId) throws InterruptedException {
         // 1.查询秒杀优惠券
         SeckillVoucher seckillVoucher = seckillVoucherServiceImpl.getById(voucherId);
         // 2.判断是否不在下单时间内
@@ -75,20 +75,21 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         // 用redis分布式锁执行秒杀
 //        SimpleRedisLock lock = new SimpleRedisLock(stringRedisTemplate, "order:" + userId);
 //        RLock lock = redissonClient.getLock("lock:order:" + userId);
-        DLock lock = distributedLockClient.getLock("lock:order" + userId);
-//
+//        DLock lock = distributedLockClient.getLock("lock:order" + userId);
 //        boolean isLock = lock.tryLock();
-        boolean isLock = lock.tryLock(40L, -1, TimeUnit.SECONDS);
+//        lock.lockInterruptibly(-1L, TimeUnit.SECONDS);
+//        boolean isLock = lock.tryLock(40L, -1, TimeUnit.SECONDS);
 //        boolean isLock = lock.tryLock();
-        if (!isLock) {
+        /*if (!isLock) {
             throw new RuntimeException("不允许重复下单");
-        }
+        }*/
 
         try {
-//            Thread.sleep(20000);
+//            Thread.sleep(30000);
             return thisProxy.createVoucherOrder(voucherId);
         } finally {
-            lock.unlock();
+//            System.out.println("资源已经释放了！");
+//            lock.unlock();
         }
     }
 

@@ -3,6 +3,7 @@ package com.hmdp.config;
 import org.redisson.RedissonRedLock;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -14,7 +15,8 @@ import java.util.List;
 public class RedLockFactory {
     private final List<RedissonClient> redissonClients;
 
-    public RedLockFactory(List<RedissonClient> redissonClients) {
+    // 核心：用@Qualifier指定要注入的Bean是RedLockConfig中定义的redissonClients（List<RedissonClient>类型）
+    public RedLockFactory(@Qualifier("redissonClients") List<RedissonClient> redissonClients) {
         this.redissonClients = redissonClients;
     }
 

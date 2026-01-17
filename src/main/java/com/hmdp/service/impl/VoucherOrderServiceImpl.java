@@ -1,5 +1,6 @@
 package com.hmdp.service.impl;
 
+import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.SeckillVoucher;
 import com.hmdp.entity.VoucherOrder;
 import com.hmdp.lock.client.DistributedLockClient;
@@ -12,11 +13,14 @@ import com.hmdp.utils.UserHolder;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -40,58 +44,100 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private DistributedLockClient distributedLockClient;
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
-    /*@Autowired
-    private RedissonClient redissonClient;*/
+    @Autowired
+    private RedissonClient redissonClient;
+
+    // 定义RedisScript对象（封装Lua脚本）
+    private final static DefaultRedisScript<Long> SECKILL_SCRIPT;
+
+    // 初始化Lua脚本（项目启动时加载）
+    static {
+        SECKILL_SCRIPT = new DefaultRedisScript<>();
+        SECKILL_SCRIPT.setLocation(new ClassPathResource("/lua/seckill.lua"));
+        SECKILL_SCRIPT.setResultType(Long.class);
+    }
 
     /**
-     * 下单秒杀优惠券
+     * 下单秒杀优惠券（异步秒杀，提升接口吞吐量，牺牲了 “数据一致性” 和 “用户体验”）
      * @param voucherId
      * @return
      */
     public Long seckillVoucher(Long voucherId) throws InterruptedException {
-        // 1.查询秒杀优惠券
-        SeckillVoucher seckillVoucher = seckillVoucherServiceImpl.getById(voucherId);
-        // 2.判断是否不在下单时间内
-        if (seckillVoucher.getBeginTime().isAfter(LocalDateTime.now())
-                ||  seckillVoucher.getEndTime().isBefore(LocalDateTime.now())) {
-            throw new RuntimeException("当前不在抢购优惠券的时间内！");
-        }
-
-        /*// 3.判断库存是否充足
-        if (seckillVoucher.getStock() < 1) {
-            throw new RuntimeException("库存不足！");
-        }*/
-
+        // 0. 获取用户ID
         Long userId = UserHolder.getUser().getId();
-        /*synchronized((userId.toString().intern())) {
-//            IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
-            return thisProxy.createVoucherOrder(voucherId);
-        }*/
-        // 用数据库分布式锁执行秒杀（锁key：业务+资源ID）
-        /*return dbDistributedLock.executeWithLock(
-                "seckill:voucher:" + voucherId + "user:id" + userId,
-                () -> thisProxy.createVoucherOrder(voucherId) // 秒杀业务逻辑
-        );*/
-        // 用redis分布式锁执行秒杀
-//        SimpleRedisLock lock = new SimpleRedisLock(stringRedisTemplate, "order:" + userId);
-//        RLock lock = redissonClient.getLock("lock:order:" + userId);
-//        DLock lock = distributedLockClient.getLock("lock:order" + userId);
-//        boolean isLock = lock.tryLock();
-//        lock.lockInterruptibly(-1L, TimeUnit.SECONDS);
-//        boolean isLock = lock.tryLock(40L, -1, TimeUnit.SECONDS);
-//        boolean isLock = lock.tryLock();
-        /*if (!isLock) {
-            throw new RuntimeException("不允许重复下单");
-        }*/
 
-        try {
-//            Thread.sleep(30000);
-            return thisProxy.createVoucherOrder(voucherId);
-        } finally {
-//            System.out.println("资源已经释放了！");
-//            lock.unlock();
+        // 1.执行lua脚本
+        Long result = stringRedisTemplate.execute(
+                SECKILL_SCRIPT,
+                Collections.emptyList(),
+                voucherId.toString(),
+                userId.toString()
+        );
+
+        // 2.判断结果是否为0
+        // 2.1.不为0，代表没有购买资格
+        if (result != 0) {
+            String msg = result == 1 ? "库存不足" : "请勿重复下单";
+            throw new RuntimeException(msg);
         }
+
+        // 2.2.为0，有购买资格，把下单信息保存到阻塞队列
+        long orderId = redisIdWorker.nextId("order");
+        // TODO 保存到阻塞队列
+
+        // 3.返回订单id
+        return orderId;
     }
+
+//    *
+//     * 下单秒杀优惠券
+//     * @param voucherId
+//     * @return
+//
+//    public Long seckillVoucher(Long voucherId) throws InterruptedException {
+//        // 1.查询秒杀优惠券
+//        SeckillVoucher seckillVoucher = seckillVoucherServiceImpl.getById(voucherId);
+//        // 2.判断是否不在下单时间内
+//        if (seckillVoucher.getBeginTime().isAfter(LocalDateTime.now())
+//                ||  seckillVoucher.getEndTime().isBefore(LocalDateTime.now())) {
+//            throw new RuntimeException("当前不在抢购优惠券的时间内！");
+//        }
+//
+//        // 3.判断库存是否充足
+//        if (seckillVoucher.getStock() < 1) {
+//            throw new RuntimeException("库存不足！");
+//        }*/
+//
+//        Long userId = UserHolder.getUser().getId();
+//        synchronized((userId.toString().intern())) {
+////            IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
+//            return thisProxy.createVoucherOrder(voucherId);
+//        }
+//        // 用数据库分布式锁执行秒杀（锁key：业务+资源ID）
+//        return dbDistributedLock.executeWithLock(
+//                "seckill:voucher:" + voucherId + "user:id" + userId,
+//                () -> thisProxy.createVoucherOrder(voucherId) // 秒杀业务逻辑
+//        );
+//        // 用redis分布式锁执行秒杀
+////        SimpleRedisLock lock = new SimpleRedisLock(stringRedisTemplate, "order:" + userId);
+//        RLock lock = redissonClient.getLock("lock:order:" + userId);
+////        DLock lock = distributedLockClient.getLock("lock:order" + userId);
+////        boolean isLock = lock.tryLock();
+////        lock.lockInterruptibly(-1L, TimeUnit.SECONDS);
+//        boolean isLock = lock.tryLock(40L, -1, TimeUnit.SECONDS);
+////        boolean isLock = lock.tryLock();
+//        if (!isLock) {
+//            throw new RuntimeException("不允许重复下单");
+//        }
+//
+//        try {
+////            Thread.sleep(30000);
+//            return thisProxy.createVoucherOrder(voucherId);
+//        } finally {
+////            System.out.println("资源已经释放了！");
+//            lock.unlock();
+//        }
+//    }
 
     @Transactional
     public Long createVoucherOrder(Long voucherId) {

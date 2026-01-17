@@ -10,7 +10,7 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class RedisConfig {
 
-//    @Bean
+    @Bean
     public RedissonClient redissonClient() {
         // 1.配置类
         Config config = new Config();

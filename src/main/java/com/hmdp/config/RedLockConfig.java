@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Configuration;
 import java.util.ArrayList;
 import java.util.List;
 
-@Configuration
+//@Configuration
 public class RedLockConfig {
 
     // 初始化多个独立的 Redis 客户端（私有方法，内部调用）

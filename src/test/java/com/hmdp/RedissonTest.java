@@ -17,31 +17,31 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 public class RedissonTest {
 
-    /*@Autowired
+    @Autowired
     private RedissonClient redissonClient;
     @Autowired
     private RedissonClient redissonClient1;
     @Autowired
-    private RedissonClient redissonClient2;*/
-    @Autowired
-    private RedLockFactory redLockFactory;
+    private RedissonClient redissonClient2;
+/*    @Autowired
+    private RedLockFactory redLockFactory;*/
 
-    private RedissonRedLock redLock;
-//    private RLock lock;
+//    private RedissonRedLock redLock;
+    private RLock lock;
 
     @BeforeEach
     void setUp() {
-        redLock = redLockFactory.createRedLock("order");
-        /*RLock lock1 = redissonClient.getLock("order");
+//        redLock = redLockFactory.createRedLock("order");
+        RLock lock1 = redissonClient.getLock("order");
         RLock lock2 = redissonClient1.getLock("order");
         RLock lock3 = redissonClient2.getLock("order");
-        lock = redissonClient1.getMultiLock(lock1, lock2, lock3);*/
+        lock = redissonClient1.getMultiLock(lock1, lock2, lock3);
     }
 
     @Test
     void method1() throws InterruptedException {
         // 尝试获取锁
-        boolean isLock = redLock.tryLock(1L, TimeUnit.SECONDS);
+        boolean isLock = lock.tryLock(1L, TimeUnit.SECONDS);
         if (!isLock) {
             log.error("获取锁失败 ... 1");
             return;
@@ -53,14 +53,14 @@ public class RedissonTest {
             log.info("开始执行业务 ... 1");
         } finally {
             log.warn("准备释放锁 ... 1");
-            redLock.unlock();
+            lock.unlock();
         }
     }
 
     @Test
     void method2() throws InterruptedException {
         // 尝试获取锁
-        boolean isLock = redLock.tryLock(1L, TimeUnit.SECONDS);
+        boolean isLock = lock.tryLock(1L, TimeUnit.SECONDS);
         if (!isLock) {
             log.error("获取锁失败 ... 2");
             return;
@@ -71,7 +71,7 @@ public class RedissonTest {
             log.info("开始执行业务 ... 2");
         } finally {
             log.warn("准备释放锁 ... 2");
-            redLock.unlock();
+            lock.unlock();
         }
     }
 }

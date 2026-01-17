@@ -54,7 +54,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             throw new RuntimeException("手机号格式错误！");
         }
         // 3.生成验证码
-        String code = RandomUtil.randomNumbers(6);
+        // TODO temp
+        String code = "111111";
+//        String code = RandomUtil.randomNumbers(6);
         // 4.保存验证码到redis
         stringRedisTemplate.opsForValue().set(LOGIN_CODE_KEY + phone, code, Duration.ofMinutes(LOGIN_CODE_TTL));
         // 5.发送验证码

@@ -9,12 +9,17 @@
 local voucherId = ARGV[1]
 -- 1.2.用户id
 local userId = ARGV[2]
+-- 1.3.订单id
+local orderId = ARGV[3]
+
 
 -- 2.数据key
 -- 2.1.库存key
 local stockKey = 'seckill:stock:' .. voucherId
 -- 2.2.订单key
 local orderKey = 'seckill:order:' .. voucherId
+-- 2.3.Stream消息队列key
+local streamKey = 'streams:order'
 
 -- 3.资格判断
 -- 3.1.判断库存是否充足
@@ -29,8 +34,21 @@ then
     return 2 --重复下单标记
 end
 
--- 4.扣减库存 + 记录用户
+-- 4.操作缓存，并保存订单到消息队列中
+-- 4.1.扣减库存 + 记录用户
 redis.call('decr', stockKey) -- 库存-1
 redis.call('sadd', orderKey, userId) -- 记录用户已下单
+-- 4.2.保存订单到Stream消息队列
+-- 写入Stream：自动生成消息ID，携带voucherId/userId/orderId，同时限制Stream长度（避免内存溢出）
+-- XADD key * k1 v1 k2 v2
+redis.call('XADD',
+        streamKey,                -- Stream的key：streams:order
+        'MAXLEN', '~', 100000,    -- 可选：保留最新10万条消息（近似匹配，高性能）
+        'LIMIT', 1000,            -- 可选：单次清理最多删1000条旧消息（避免阻塞Redis）
+        '*',                      -- 自动生成消息ID（时间戳-序列号）
+        'voucherId', voucherId,   -- 字段1：优惠券ID
+        'userId', userId,         -- 字段2：用户ID
+        'id', orderId        -- 字段3：订单ID
+)
 
 return 0 -- 秒杀成功标记

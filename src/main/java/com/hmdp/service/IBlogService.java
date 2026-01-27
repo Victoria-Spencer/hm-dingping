@@ -18,4 +18,6 @@ public interface IBlogService extends IService<Blog> {
     List<Blog> queryHotBlog(Integer current);
 
     Blog queryBlog(Long id);
+
+    void likeBlog(Long id);
 }

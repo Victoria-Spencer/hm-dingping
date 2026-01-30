@@ -13,6 +13,7 @@ import com.hmdp.service.IUserService;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RegexUtils;
 import com.hmdp.utils.SystemConstants;
+import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -21,8 +22,8 @@ import org.springframework.stereotype.Service;
 import javax.servlet.http.HttpSession;
 
 import java.time.Duration;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 import static com.hmdp.utils.RedisConstants.*;
 import static com.hmdp.utils.SystemConstants.USER_NICK_NAME_PREFIX;
@@ -108,6 +109,33 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         stringRedisTemplate.expire(key, Duration.ofMinutes(LOGIN_USER_TTL));
         // 6.返回token
         return token;
+    }
+
+    /**
+     * 共同关注功能
+     * @param id
+     * @return
+     */
+    public List<UserDTO> followCommons(Long id) {
+        // 1.生成key
+        Long userId = UserHolder.getUser().getId();
+        String key1 = "follows:" + userId;
+        String key2 = "follows:" + id;
+
+        // 2.查交集
+        Set<String> intersect = stringRedisTemplate.opsForSet().intersect(key1, key2);
+        if(intersect == null || intersect.isEmpty() ) {
+            return Collections.emptyList();
+        }
+        List<Long> ids = intersect.stream()
+                .filter(str -> str.matches("\\d+")) // 正则匹配纯数字
+                .map(Long::valueOf)
+                .collect(Collectors.toList());
+
+        // 3.根据ids查询用户信息，并转为UserDTO返回
+        return listByIds(ids).stream()
+                .map(user -> BeanUtil.copyProperties(user, UserDTO.class))
+                .collect(Collectors.toList());
     }
 
     private User createUserWithPhone(String phone) {

@@ -2,9 +2,11 @@ package com.hmdp.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.hmdp.dto.LoginFormDTO;
+import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.User;
 
 import javax.servlet.http.HttpSession;
+import java.util.List;
 
 /**
  * <p>
@@ -30,4 +32,6 @@ public interface IUserService extends IService<User> {
      * return
      */
     String login(LoginFormDTO loginForm, HttpSession session);
+
+    List<UserDTO> followCommons(Long id);
 }

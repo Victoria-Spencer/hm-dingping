@@ -76,4 +76,17 @@ public class BlogController {
         List<UserDTO> userDTOList = blogService.queryBlogLikes(id);
         return Result.ok(userDTOList);
     }
+
+    @GetMapping("/of/user")
+    public Result queryBlogByUserId(
+            @RequestParam(value = "current", defaultValue = "1") Integer current,
+            @RequestParam("id") Long id) {
+        // 根据用户分页查询
+        Page<Blog> blogPage = blogService.query()
+                .eq("user_id", id)
+                .page(new Page<>(current, SystemConstants.MAX_PAGE_SIZE));
+        // 返回当前页数据
+        List<Blog> records = blogPage.getRecords();
+        return Result.ok(records);
+    }
 }

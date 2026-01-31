@@ -23,4 +23,6 @@ public interface IBlogService extends IService<Blog> {
     void likeBlog(Long id);
 
     List<UserDTO> queryBlogLikes(Long id);
+
+    Long saveBlog(Blog blog);
 }

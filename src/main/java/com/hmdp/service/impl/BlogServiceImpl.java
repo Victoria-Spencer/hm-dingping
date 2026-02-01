@@ -6,6 +6,7 @@ import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
+import com.hmdp.dto.ScrollResult;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Blog;
 import com.hmdp.entity.Follow;
@@ -20,13 +21,12 @@ import com.hmdp.utils.UserHolder;
 import org.apache.tomcat.util.buf.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 import static com.hmdp.utils.RedisConstants.BLOG_LIKED_KEY;
@@ -169,6 +169,82 @@ public class BlogServiceImpl extends ServiceImpl<BlogMapper, Blog> implements IB
         }
         // 4.返回id
         return blog.getId();
+    }
+
+    @Override
+    public ScrollResult queryBlogOfFollow(Long lastId, Integer offset) {
+        // 1.获取当前用户
+        Long id = UserHolder.getUser().getId();
+        String key = FEED_KEY + id;
+
+        // 2.在redis中，查询blogId
+        Set<ZSetOperations.TypedTuple<String>> typedTuples = stringRedisTemplate.opsForZSet()
+                .reverseRangeByScoreWithScores(key, 0, lastId, offset, 2);
+        if (typedTuples == null || typedTuples.isEmpty()) {
+            return null;
+        }
+
+        // 3.解析typedTuples, 提取blogId集合，minTime, newOffset
+        List<String> blogIds = new ArrayList<>(); // 存储提取的blogId集合
+        Long minTime = 0L; // 本次结果中最小的score（下一页的lastId）
+        int sameScoreCount = 0; // 当前页中与minTime相 同的元素个数
+
+        // 3.1.将Set转成List，方便获取最后一个元素（求minTime）和判断结果数量（求newOffset）
+        List<ZSetOperations.TypedTuple<String>> tupleList = new ArrayList<>(typedTuples);
+        // 3.2.流式提取blogId
+        blogIds = tupleList.stream()
+                .map(ZSetOperations.TypedTuple::getValue) // 从Tuple中提取blogId
+                .filter(Objects::nonNull) // 防止null值
+                .collect(Collectors.toList()); // 收集成blogId列表
+
+        // 3.3.获取minTime（最后一个元素的score，转Long，与lastId类型一致）
+        ZSetOperations.TypedTuple<String> lastTuple = tupleList.get(tupleList.size() - 1);
+        if (lastTuple.getScore() != null) {
+            minTime = lastTuple.getScore().longValue(); // Double→Long，适配lastId类型
+            // 从尾部遍历，统计sameScoreCount
+            // --------------------------
+            double targetScore = lastTuple.getScore(); // 目标score（minTime）
+            // 从列表尾部向前遍历，统计连续等于targetScore的元素个数
+            for (int i = tupleList.size() - 1; i >= 0; i--) {
+                ZSetOperations.TypedTuple<String> tuple = tupleList.get(i);
+                if (tuple.getScore() != null && Double.compare(tuple.getScore(), targetScore) == 0) {
+                    sameScoreCount++; // 相同则计数+1
+                } else {
+                    break; // 遇到不同score，直接终止遍历（仅统计连续的）
+                }
+            }
+        }
+
+        int newOffset = 0; // 下一页的偏移量
+        if (minTime.equals(lastId)) {
+            // 相同：同一score未取完，offset=上一页offset + 本次同score个数
+            newOffset = offset.intValue() + sameScoreCount;
+        } else {
+            // 不同：score已切换，newOffset=本次同score个数
+            newOffset = sameScoreCount;
+        }
+
+        // 4.根据blogIds查询博客 - 保持Redis的顺序（避免数据库乱序）
+        String blogIdStr = StrUtil.join(",", blogIds);
+        List<Blog> blogs = blogService.list(
+                new QueryWrapper<Blog>()
+                        .in("id", blogIds)
+                        .last("ORDER BY FIELD(id, " + blogIdStr + ")")
+        );
+
+        for (Blog blog : blogs) {
+            // 4.1.查询blog有关的用户
+            queryBlogUser(blog);
+            // 4.2.查询blog是否被当前用户点赞
+            isBlogLiked(blog);
+        }
+
+        // 5.封装返回
+        ScrollResult sr = new ScrollResult();
+        sr.setList(blogs);
+        sr.setMinTime(minTime);
+        sr.setOffset(newOffset);
+        return sr;
     }
 
     private void queryBlogUser(Blog blog) {

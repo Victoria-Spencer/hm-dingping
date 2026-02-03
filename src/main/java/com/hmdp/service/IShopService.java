@@ -3,6 +3,8 @@ package com.hmdp.service;
 import com.hmdp.entity.Shop;
 import com.baomidou.mybatisplus.extension.service.IService;
 
+import java.util.List;
+
 /**
  * <p>
  *  服务类
@@ -25,4 +27,10 @@ public interface IShopService extends IService<Shop> {
      * @param shop
      */
     void update(Shop shop);
+
+    /**
+     * 根据店铺类型查询店铺信息
+     * @return
+     */
+    List<Shop> queryShopByType(Integer typeId, Integer current, Double x, Double y);
 }

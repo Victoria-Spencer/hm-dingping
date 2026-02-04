@@ -34,4 +34,6 @@ public interface IUserService extends IService<User> {
     String login(LoginFormDTO loginForm, HttpSession session);
 
     List<UserDTO> followCommons(Long id);
+
+    void sign();
 }

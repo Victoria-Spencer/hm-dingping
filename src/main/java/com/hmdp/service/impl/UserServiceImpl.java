@@ -17,11 +17,15 @@ import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.stereotype.Service;
 
 import javax.servlet.http.HttpSession;
 
 import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -42,6 +46,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
+
+    // 年月格式化器（yyyyMM，如202602）
+    private static final DateTimeFormatter YEAR_MONTH_FORMAT = DateTimeFormatter.ofPattern("yyyyMM");
+    // 日期格式化器（dd，仅取当月日期）
+    private static final DateTimeFormatter DAY_FORMAT = DateTimeFormatter.ofPattern("d");
 
     /**
      * 发送验证码
@@ -138,11 +147,49 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
                 .collect(Collectors.toList());
     }
 
+    @Override
+    public void sign() {
+        // 1.获取当前用户
+        UserDTO userDTO = UserHolder.getUser();
+        if(userDTO == null) {
+            return;
+        }
+        Long userId = userDTO.getId();
+        LocalDate today = LocalDate.now();
+        String signKey = buildSignKey(userId, today);
+        int dayOffset = getDayOffset(today);
+
+        Boolean oldBit = stringRedisTemplate.opsForValue().setBit(signKey, dayOffset, true);
+        if(Objects.equals(oldBit, true)) {
+            log.info("重复签到！");
+        }
+    }
+
     private User createUserWithPhone(String phone) {
         User user = new User();
         user.setPhone(phone);
         user.setNickName(USER_NICK_NAME_PREFIX + RandomUtil.randomString(10));
         save(user);
         return user;
+    }
+
+    /**
+     * 构建用户当月签到Key
+     * @param userId 用户ID
+     * @param date 日期（任意日期，自动提取年月）
+     * @return 签到Key
+     */
+    private String buildSignKey(Long userId, LocalDate date) {
+        String yearMonth = date.format(YEAR_MONTH_FORMAT);
+        return String.format(USER_SIGN_KEY, userId, yearMonth);
+    }
+
+    /**
+     * 计算日期对应的Bitmap位偏移量（偏移0对应当月1号，偏移n对应n+1号）
+     * @param date 日期
+     * @return 位偏移量（0~30）
+     */
+    private int getDayOffset(LocalDate date) {
+        return date.getDayOfMonth() - 1;
     }
 }

@@ -7,6 +7,7 @@ import com.hmdp.service.IShopService;
 import com.hmdp.service.impl.ShopServiceImpl;
 import com.hmdp.utils.CacheClient;
 import com.hmdp.utils.RedisIdWorker;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -29,6 +30,7 @@ import static com.hmdp.utils.RedisConstants.CACHE_SHOP_KEY;
 import static com.hmdp.utils.RedisConstants.SHOP_GEO_KEY;
 
 @SpringBootTest
+@Slf4j
 class HmDianPingApplicationTests {
 
     @Autowired
@@ -158,5 +160,24 @@ class HmDianPingApplicationTests {
                 stringRedisTemplate.opsForGeo().add(key, geoLocations);
             }
         }
+    }
+
+    @Test
+    void testHyperLogLog() {
+        String[] values = new String[1000];
+
+        int j = 0;
+        for (int i = 0; i < 1000000; i++) {
+            j = i % 1000;
+            values[j] = "user_" + i;
+            if(j == 999) {
+                // 添加元素
+                stringRedisTemplate.opsForHyperLogLog().add("hl3", values);
+            }
+        }
+
+        // 统计数量
+        Long count = stringRedisTemplate.opsForHyperLogLog().size("hl3");
+        log.info("count：{}", count);
     }
 }

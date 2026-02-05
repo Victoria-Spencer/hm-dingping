@@ -36,4 +36,10 @@ public interface IUserService extends IService<User> {
     List<UserDTO> followCommons(Long id);
 
     void sign();
+
+    /**
+     * 统计截止到当天，连续签到的天数
+     * @return
+     */
+    Integer signCount();
 }

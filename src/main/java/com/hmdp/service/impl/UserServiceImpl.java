@@ -15,7 +15,10 @@ import com.hmdp.utils.RegexUtils;
 import com.hmdp.utils.SystemConstants;
 import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
+import lombok.var;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.connection.BitFieldSubCommands;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.stereotype.Service;
@@ -147,9 +150,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
                 .collect(Collectors.toList());
     }
 
-    @Override
+    /*@Override
     public void sign() {
-        // 1.获取当前用户
+        // 获取当前用户
         UserDTO userDTO = UserHolder.getUser();
         if(userDTO == null) {
             return;
@@ -163,6 +166,134 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         if(Objects.equals(oldBit, true)) {
             log.info("重复签到！");
         }
+    }*/
+
+    /**
+     统计截止到当天，连续签到的天数
+     */
+    /*public Integer signCount() {
+        // 1.获取当前用户
+        UserDTO userDTO = UserHolder.getUser();
+        if(userDTO == null) {
+            throw new RuntimeException("用户为空");
+        }
+        Long userId = userDTO.getId();
+        LocalDate today = LocalDate.now();
+        String signCountKey = buildSignKey(userId, today);
+        int dayOffset = getDayOffset(today);
+
+        // 2.调用redis,返回整数（月初到当天）
+        List<Long> bitFieldResult = stringRedisTemplate.opsForValue().bitField(
+                signCountKey,
+                BitFieldSubCommands.create()
+                        // 读取无符号32位（覆盖当月最多31天），从偏移0开始
+                        .get(BitFieldSubCommands.BitFieldType.unsigned(dayOffset + 1))
+                        .valueAt(0)
+        );
+
+        if(bitFieldResult == null || bitFieldResult.isEmpty()) {
+            return 0;
+        }
+        Long num = bitFieldResult.get(0);
+        int consecutiveDays = 0;
+
+        // 3.统计连续签到天数
+        while(num != 0) {
+            if((num & 1) == 1) {
+                consecutiveDays++;
+            } else {
+                break;
+            }
+            num >>>= 1;
+        }
+        return consecutiveDays;
+    }*/
+    public void sign() {
+        // 1. 获取当前用户，未登录直接返回
+        UserDTO userDTO = UserHolder.getUser();
+        if (userDTO == null) {
+            return;
+        }
+         Long userId = userDTO.getId();
+        LocalDate today = LocalDate.now();
+        String signKey = buildSignKey(userId, today);
+        int dayOffset = getDayOffset(today);
+        LocalDate yesterday = today.minusDays(1);
+
+        // 2. 构建BITFIELD子命令
+        var cmdBuilder = BitFieldSubCommands.create();
+
+        // 命令1：执行签到（等效SETBIT，原子操作，返回签到位旧值）
+        cmdBuilder = cmdBuilder.set(BitFieldSubCommands.BitFieldType.unsigned(1))
+                .valueAt(dayOffset)
+                .to(1);
+
+        // 命令2：更新连续签到天数（根据业务逻辑自动拼接，无冗余分支）
+        if (yesterday.getMonthValue() != today.getMonthValue()) {
+            // 跨月：直接重置连续天数为1
+            cmdBuilder = cmdBuilder.set(BitFieldSubCommands.BitFieldType.unsigned(CONTINUE_SIGN_BIT_LEN))
+                    .valueAt(CONTINUE_SIGN_OFFSET)
+                    .to(1);
+        } else {
+            // 未跨月：判断前一天是否签到
+            Boolean yesterdaySignedBool = stringRedisTemplate.opsForValue().getBit(signKey, getDayOffset(yesterday));
+            // 判空：Key不存在时，默认前一天未签到
+            boolean yesterdaySigned = Objects.equals(yesterdaySignedBool, true);
+            if (yesterdaySigned) {
+                // 前一天已签：自增
+                cmdBuilder = cmdBuilder.incr(BitFieldSubCommands.BitFieldType.unsigned(CONTINUE_SIGN_BIT_LEN))
+                        .valueAt(CONTINUE_SIGN_OFFSET)
+                        .by(1);
+            } else {
+                // 前一天未签：重置连续天数为1
+                cmdBuilder = cmdBuilder.set(BitFieldSubCommands.BitFieldType.unsigned(CONTINUE_SIGN_BIT_LEN))
+                        .valueAt(CONTINUE_SIGN_OFFSET)
+                        .to(1);
+            }
+        }
+
+        // 3. 仅调用一次StringRedisTemplate，执行所有BITFIELD命令
+        List<Long> bitFieldResult = stringRedisTemplate.opsForValue()
+                .bitField(signKey, cmdBuilder);
+
+        // 4. 简化判断：根据签到命令的返回值，判断是否重复签到
+        if (bitFieldResult != null && !bitFieldResult.isEmpty() &&  Objects.equals(bitFieldResult.get(0), 1L)) {
+            log.info("用户{}今日重复签到，日期：{}", userId, today);
+        }
+    }
+
+    public Integer signCount() {
+        // 1. 获取当前用户，未登录直接返回
+        UserDTO userDTO = UserHolder.getUser();
+        if (userDTO == null) {
+            return 0;
+        }
+        Long userId = userDTO.getId();
+        LocalDate today = LocalDate.now();
+        String signCountKey = buildSignKey(userId, today);
+        int dayOffset = getDayOffset(today);
+
+        // 核心业务判断：今日是否已签到（未签到→直接返回0，断签清零）
+        Boolean isTodaySigned = stringRedisTemplate.opsForValue().getBit(signCountKey, dayOffset);
+        if (!Objects.equals(isTodaySigned, true)) {
+            // 直接返回，会出现短暂的不一致，不影响结果
+            return 0;
+        }
+
+        // 2. 读取Redis中存储的连续签到天数（u5 31）
+        List<Long> bitFieldResult = stringRedisTemplate.opsForValue()
+                .bitField(
+                        signCountKey,
+                        BitFieldSubCommands.create()
+                                .get(BitFieldSubCommands.BitFieldType.unsigned(CONTINUE_SIGN_BIT_LEN))
+                                .valueAt(CONTINUE_SIGN_OFFSET)
+                );
+
+        // 3. 正确的结果处理：无结果返回0，有结果返回实际数值（避免空指针）
+        if(bitFieldResult == null || bitFieldResult.isEmpty() ) {
+            return 0;
+        }
+        return bitFieldResult.get(0).intValue();
     }
 
     private User createUserWithPhone(String phone) {
